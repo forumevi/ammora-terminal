@@ -10,7 +10,7 @@ import {
   Wallet, Activity, BarChart2, Flame
 } from "lucide-react";
 
-// GIWA Bonding Curve Minimal ABI (Buy / Sell Metotları)
+// GIWA Bonding Curve Minimal ABI
 const BONDING_CURVE_ABI = [
   {
     inputs: [{ internalType: "address", name: "token", type: "address" }],
@@ -30,6 +30,27 @@ const BONDING_CURVE_ABI = [
     type: "function",
   },
 ] as const;
+
+const FALLBACK_LAUNCHES = [
+  {
+    symbol: "GIWA",
+    name: "Giwa Protocol Token",
+    tokenAddress: "0x3A92eF28190B1938502845c43d783dD953E23331",
+    launchCurveAddress: "0x892a019b83b9281938502845c43d783dD953E233",
+  },
+  {
+    symbol: "AMM",
+    name: "Ammora Network",
+    tokenAddress: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",
+    launchCurveAddress: "0x112b019b83b9281938502845c43d783dD953E232",
+  },
+  {
+    symbol: "BOND",
+    name: "Bonding Curve DAO",
+    tokenAddress: "0x2546Bc3ed2b8039c42023d387034c2C9810842e0",
+    launchCurveAddress: "0x334a019b83b9281938502845c43d783dD953E231",
+  },
+];
 
 export default function AmmoraTerminalPage() {
   const { address, isConnected } = useAccount();
@@ -61,33 +82,15 @@ export default function AmmoraTerminalPage() {
           ? response
           : response?.launches || response?.data || response?.items || [];
 
-        if (launchArray.length > 0) {
+        if (launchArray && launchArray.length > 0) {
           setLaunches(launchArray);
         } else {
-          setLaunches([
-            {
-              symbol: "GIWA",
-              name: "Giwa Protocol Token",
-              tokenAddress: "0x3A92eF28190B1938502845c43d783dD953E23331",
-              launchCurveAddress: "0x892a019b83b9281938502845c43d783dD953E233",
-            },
-            {
-              symbol: "AMM",
-              name: "Ammora Network",
-              tokenAddress: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",
-              launchCurveAddress: "0x112b019b83b9281938502845c43d783dD953E232",
-            },
-            {
-              symbol: "BOND",
-              name: "Bonding Curve DAO",
-              tokenAddress: "0x2546Bc3ed2b8039c42023d387034c2C9810842e0",
-              launchCurveAddress: "0x334a019b83b9281938502845c43d783dD953E231",
-            },
-          ]);
+          setLaunches(FALLBACK_LAUNCHES);
         }
       } catch (err) {
         console.error("Data API Fetch Error:", err);
-      } finally {
+        setLaunches(FALLBACK_LAUNCHES);
+      } font-mono finally {
         setLoading(false);
       }
     }
@@ -134,7 +137,6 @@ export default function AmmoraTerminalPage() {
       });
   }, [launches, searchQuery, sortBy]);
 
-  // GERÇEK ON-CHAIN TRANSACTION ÇAĞRISI
   const handleExecuteSwap = async () => {
     if (!isConnected) {
       setShowWalletModal(true);
@@ -148,7 +150,6 @@ export default function AmmoraTerminalPage() {
 
     try {
       if (swapMode === "buy") {
-        // Gerçek On-Chain Buy İşlemi
         writeContract({
           address: curveAddress as `0x${string}`,
           abi: BONDING_CURVE_ABI,
@@ -157,7 +158,6 @@ export default function AmmoraTerminalPage() {
           value: parseEther(amount),
         });
       } else {
-        // Gerçek On-Chain Sell İşlemi
         writeContract({
           address: curveAddress as `0x${string}`,
           abi: BONDING_CURVE_ABI,
@@ -456,7 +456,6 @@ export default function AmmoraTerminalPage() {
               />
             </div>
 
-            {/* Transaction Durumu Alert Kutusu */}
             {(isWritePending || isConfirming || isConfirmed || writeError || hash) && (
               <div className="p-3 rounded-xl text-xs space-y-2 border bg-slate-950 border-slate-800">
                 {isWritePending && (
