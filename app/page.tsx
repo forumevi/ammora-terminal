@@ -3,11 +3,12 @@
 import { useEffect, useState, useMemo } from "react";
 import { dataApiClient, GIWA_CHAIN_ID } from "@/lib/ammora";
 import { useAccount, useConnect, useDisconnect, useBalance } from "wagmi";
+import { formatEther } from "viem";
 import { 
   Terminal, ShieldCheck, X, RefreshCw, 
   CheckCircle2, AlertCircle, Search, TrendingUp, 
   Layers, ExternalLink, Zap, DollarSign, SlidersHorizontal, ArrowUpRight, Loader2,
-  Wallet, Activity, BarChart2, Flame, ArrowDownUp
+  Wallet, Activity, BarChart2, Flame
 } from "lucide-react";
 
 export default function AmmoraTerminalPage() {
@@ -196,7 +197,7 @@ export default function AmmoraTerminalPage() {
                 <span className="text-slate-200">{address?.slice(0, 6)}...{address?.slice(-4)}</span>
                 {balanceData && (
                   <span className="text-emerald-400 font-bold border-l border-slate-800 pl-2">
-                    {parseFloat(balanceData.formatted).toFixed(3)} {balanceData.symbol}
+                    {parseFloat(formatEther(balanceData.value)).toFixed(3)} {balanceData.symbol}
                   </span>
                 )}
               </div>
@@ -308,7 +309,6 @@ export default function AmmoraTerminalPage() {
             <div className="divide-y divide-slate-800/60">
               {filteredLaunches.map((item, index) => {
                 const tokenAddr = getField(item, ["tokenAddress", "token", "address", "id"]) || "";
-                const curveAddr = getField(item, ["launchCurveAddress", "curveAddress", "launchCurve", "curve"]) || "";
                 const metrics = getTokenMetrics(tokenAddr);
 
                 return (
@@ -449,7 +449,7 @@ export default function AmmoraTerminalPage() {
             <div className="space-y-1">
               <div className="flex justify-between text-xs text-slate-400">
                 <label>Amount ({swapMode === "buy" ? "ETH" : selectedLaunch.symbol})</label>
-                <span>Balance: {balanceData ? `${parseFloat(balanceData.formatted).toFixed(2)} ETH` : "0.00"}</span>
+                <span>Balance: {balanceData ? `${parseFloat(formatEther(balanceData.value)).toFixed(2)} ETH` : "0.00"}</span>
               </div>
               <input
                 type="text"
