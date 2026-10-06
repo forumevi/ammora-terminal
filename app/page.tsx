@@ -72,7 +72,6 @@ export default function AmmoraTerminalPage() {
 
   const [swapMode, setSwapMode] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState<string>("0.001");
-  const [slippage, setSlippage] = useState<string>("0.5");
 
   useEffect(() => {
     async function fetchLaunches() {
@@ -90,7 +89,7 @@ export default function AmmoraTerminalPage() {
       } catch (err) {
         console.error("Data API Fetch Error:", err);
         setLaunches(FALLBACK_LAUNCHES);
-      } font-mono finally {
+      } finally {
         setLoading(false);
       }
     }
