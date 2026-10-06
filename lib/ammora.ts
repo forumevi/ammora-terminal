@@ -9,8 +9,8 @@ import { createPublicClient, http } from "viem";
 export const RPC_URL = "https://sepolia-rpc.giwa.zone";
 export const DATA_API_URL = "https://ammora-giwa-sepolia-data.fly.dev";
 
-// Number olarak export ediyoruz ki hem Wagmi/API hem de BigInt fonksiyonları sorunsuz kullansın
-export const GIWA_CHAIN_ID = 91342;
+// Sayı ve BigInt/String dönüşümlerinde tip çakışmasını önlemek için BigInt kullanıyoruz
+export const GIWA_CHAIN_ID = 91342n;
 
 export const publicClient = createPublicClient({
   transport: http(RPC_URL),
@@ -23,8 +23,8 @@ export async function bootstrapAmmora(manifest: AmmoraReviewedReleaseManifestV1)
   
   const verified = await attestAmmoraDeployment({
     source: candidate,
-    chainId: BigInt(GIWA_CHAIN_ID),
-    providers: [{ id: "primary", client: publicClient }],
+    chainId: GIWA_CHAIN_ID,
+    providers: [{ id: "primary", client: publicClient as any }],
   });
 
   return verified;
