@@ -23,9 +23,10 @@ export default function AmmoraTerminalPage() {
   const [isExec, setIsExec] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ type: "success" | "error" | "info"; text: string; txHash?: string } | null>(null);
 
-  useEffect(() => {
+ useEffect(() => {
     async function fetchLaunches() {
       try {
+        // GIWA_CHAIN_ID artık BigInt (91342n) olduğu için SDK tip beklentisini tam karşılar
         const response = (await dataApiClient.getLaunches({ chainId: GIWA_CHAIN_ID })) as any;
         const launchArray = Array.isArray(response)
           ? response
