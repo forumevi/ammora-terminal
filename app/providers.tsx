@@ -1,21 +1,35 @@
 "use client";
 
+import React, { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
 import { WagmiProvider, createConfig, http } from "wagmi";
 import { mainnet, sepolia } from "wagmi/chains";
 
+// GIWA Sepolia Custom Chain Tanımı
+export const giwaSepolia = {
+  id: 91_342,
+  name: "GIWA Sepolia",
+  nativeCurrency: { name: "GIWA Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: {
+    default: { http: ["https://sepolia-rpc.giwa.zone"] },
+  },
+  blockExplorers: {
+    default: { name: "GIWA Explorer", url: "https://sepolia.etherscan.io" },
+  },
+} as const;
+
 const config = createConfig({
-  chains: [mainnet, sepolia],
+  chains: [giwaSepolia, sepolia, mainnet],
   transports: {
-    [mainnet.id]: http(),
+    [giwaSepolia.id]: http("https://sepolia-rpc.giwa.zone"),
     [sepolia.id]: http(),
+    [mainnet.id]: http(),
   },
 });
 
-export function Providers({ children }: { children: ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient());
+const queryClient = new QueryClient();
 
+export function Providers({ children }: { children: ReactNode }) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
