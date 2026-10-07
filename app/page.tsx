@@ -105,11 +105,10 @@ export default function AmmoraTerminalPage() {
         } else {
           setLaunches(FALLBACK_LAUNCHES);
         }
-      } catch (err) {
+     } catch (err) {
         console.error("Data API Fetch Error:", err);
         setLaunches(FALLBACK_LAUNCHES);
-      } font-mono
-      finally {
+      } finally {
         setLoading(false);
       }
     }
