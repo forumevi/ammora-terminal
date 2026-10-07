@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { dataApiClient, GIWA_CHAIN_ID } from "@/lib/ammora";
 import { 
   useAccount, 
@@ -102,10 +102,13 @@ export default function AmmoraTerminalPage() {
   const targetChainId = Number(GIWA_CHAIN_ID);
   const isWrongNetwork = isConnected && currentChainId !== targetChainId;
 
-  // Cüzdan Bakiyesini Ağ Kontrolü ile Çekme
+  // Custom Direct RPC ETH Balance State
+  const [directEthBalance, setDirectEthBalance] = useState<string>("0.00");
+  const [isFetchingEth, setIsFetchingEth] = useState<boolean>(false);
+
+  // Wagmi Balance Fallback
   const { data: balanceData, refetch: refetchEthBalance } = useBalance({ 
     address,
-    chainId: targetChainId
   });
 
   const { writeContractAsync } = useWriteContract();
@@ -127,9 +130,48 @@ export default function AmmoraTerminalPage() {
   const [sortBy, setSortBy] = useState<"newest" | "progress">("newest");
 
   const [swapMode, setSwapMode] = useState<"buy" | "sell">("buy");
-  const [amount, setAmount] = useState<string>("0.001");
+  const [amount, setAmount] = useState<string>("0.0001");
+
+  // Doğrudan cüzdan provider'ından zincir ETH bakiyesini çekme
+  const fetchNativeEthBalance = useCallback(async () => {
+    if (!address || typeof window === "undefined" || !window.ethereum) return;
+    try {
+      setIsFetchingEth(true);
+      const hexBalance = await window.ethereum.request({
+        method: "eth_getBalance",
+        params: [address, "latest"],
+      });
+      const balanceInWei = BigInt(hexBalance);
+      const formatted = formatEther(balanceInWei);
+      setDirectEthBalance(parseFloat(formatted).toFixed(4));
+    } catch (err) {
+      console.error("Direct ETH Balance Fetch Failed:", err);
+      if (balanceData) {
+        setDirectEthBalance(parseFloat(formatEther(balanceData.value)).toFixed(4));
+      }
+    } finally {
+      setIsFetchingEth(false);
+    }
+  }, [address, balanceData]);
+
+  useEffect(() => {
+    if (isConnected && address) {
+      fetchNativeEthBalance();
+      refetchEthBalance();
+    }
+  }, [isConnected, address, currentChainId, fetchNativeEthBalance, refetchEthBalance]);
 
   // Selected Token & Curve Addresses
+  function getField(item: any, keys: string[]) {
+    if (!item) return null;
+    for (const key of keys) {
+      if (item[key] !== undefined && item[key] !== null && item[key] !== "") {
+        return item[key];
+      }
+    }
+    return null;
+  }
+
   const activeTokenAddr = selectedLaunch 
     ? (getField(selectedLaunch, ["tokenAddress", "token", "address"]) as `0x${string}`)
     : undefined;
@@ -144,7 +186,6 @@ export default function AmmoraTerminalPage() {
     abi: ERC20_ABI,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
-    chainId: targetChainId,
     query: { enabled: !!address && !!activeTokenAddr && isAddress(activeTokenAddr) },
   });
 
@@ -154,7 +195,6 @@ export default function AmmoraTerminalPage() {
     abi: ERC20_ABI,
     functionName: "allowance",
     args: address && activeCurveAddr ? [address, activeCurveAddr] : undefined,
-    chainId: targetChainId,
     query: { enabled: !!address && !!activeTokenAddr && !!activeCurveAddr && isAddress(activeTokenAddr) },
   });
 
@@ -162,16 +202,7 @@ export default function AmmoraTerminalPage() {
     ? formatEther(tokenBalanceData)
     : "0";
 
-  const rawTokenBalance = tokenBalanceData || BigInt(0);
   const rawAllowance = allowanceData || BigInt(0);
-
-  // Ağ değiştiğinde veya cüzdan bağlandığında bakiyeyi zorla yenile
-  useEffect(() => {
-    if (isConnected) {
-      refetchEthBalance();
-      if (activeTokenAddr) refetchTokenBalance();
-    }
-  }, [isConnected, currentChainId, activeTokenAddr, refetchEthBalance, refetchTokenBalance]);
 
   useEffect(() => {
     async function fetchLaunches() {
@@ -196,15 +227,6 @@ export default function AmmoraTerminalPage() {
 
     fetchLaunches();
   }, [targetChainId]);
-
-  function getField(item: any, keys: string[]) {
-    for (const key of keys) {
-      if (item[key] !== undefined && item[key] !== null && item[key] !== "") {
-        return item[key];
-      }
-    }
-    return null;
-  }
 
   const getTokenMetrics = (addr: string) => {
     if (!addr) return { progress: 45, marketCap: "$12.4K", holders: 128, priceChange: "+14.2%" };
@@ -239,25 +261,29 @@ export default function AmmoraTerminalPage() {
   // Handle Preset Percentages (%25, %50, %75, MAX)
   const handleSetPercentage = (percentage: number) => {
     if (swapMode === "buy") {
-      if (!balanceData) {
-        setAmount("0.00");
-        return;
-      }
-      const ethVal = parseFloat(formatEther(balanceData.value));
-      // Gas için 0.001 ETH bırakalım
-      const usableEth = Math.max(0, ethVal - 0.001);
+      const ethVal = parseFloat(directEthBalance) || 0;
+      const usableEth = Math.max(0, ethVal - 0.0005);
       const calculated = (usableEth * (percentage / 100)).toFixed(5);
       setAmount(calculated);
     } else {
-      if (!tokenBalanceData) {
-        setAmount("0.00");
-        return;
-      }
-      const tokenVal = parseFloat(formatEther(tokenBalanceData));
+      const tokenVal = parseFloat(formattedTokenBalance) || 0;
       const calculated = (tokenVal * (percentage / 100)).toFixed(4);
       setAmount(calculated);
     }
   };
+
+  // Balance & Mock Validation Checks
+  const activeEthVal = parseFloat(directEthBalance) || 0;
+  const activeTokenVal = parseFloat(formattedTokenBalance) || 0;
+  const inputAmount = parseFloat(amount) || 0;
+
+  const hasEnoughBalance = swapMode === "buy" 
+    ? (activeEthVal >= inputAmount && inputAmount > 0)
+    : (activeTokenVal >= inputAmount && inputAmount > 0);
+
+  const isMockAddress = activeTokenAddr === "0x0000000000000000000000000000000000000001" || 
+                        activeTokenAddr === "0x0000000000000000000000000000000000000002" || 
+                        activeTokenAddr === "0x0000000000000000000000000000000000000003";
 
   // On-Chain Transaction Execution
   const handleExecuteSwap = async () => {
@@ -271,7 +297,15 @@ export default function AmmoraTerminalPage() {
       return;
     }
 
-    if (!selectedLaunch || !amount || parseFloat(amount) <= 0) return;
+    if (isMockAddress) {
+      setTxError("Bu mock bir test adresidir. Gerçek bir kontrat adresi gereklidir.");
+      return;
+    }
+
+    if (!hasEnoughBalance) {
+      setTxError("Yetersiz bakiye! İşlemi gerçekleştirebilmek için bakiyenizi kontrol edin.");
+      return;
+    }
 
     let tokenAddress = getField(selectedLaunch, ["tokenAddress", "token", "address"]);
     let curveAddress = getField(selectedLaunch, ["launchCurveAddress", "curveAddress", "launchCurve"]) || tokenAddress;
@@ -302,7 +336,6 @@ export default function AmmoraTerminalPage() {
           functionName: "buyToken",
           args: [tokenAddress as `0x${string}`],
           value: parsedAmount,
-          chainId: targetChainId,
         });
       } else {
         // Satış Öncesi Allowance Kontrolü
@@ -313,7 +346,6 @@ export default function AmmoraTerminalPage() {
             abi: ERC20_ABI,
             functionName: "approve",
             args: [curveAddress as `0x${string}`, parsedAmount],
-            chainId: targetChainId,
           });
           setTxHash(approveHash);
           await refetchAllowance();
@@ -324,7 +356,6 @@ export default function AmmoraTerminalPage() {
           abi: BONDING_CURVE_ABI,
           functionName: "sellToken",
           args: [tokenAddress as `0x${string}`, parsedAmount],
-          chainId: targetChainId,
         });
       }
 
@@ -335,7 +366,7 @@ export default function AmmoraTerminalPage() {
       setTimeout(() => {
         setIsConfirming(false);
         setIsSuccess(true);
-        refetchEthBalance();
+        fetchNativeEthBalance();
         refetchTokenBalance();
         refetchAllowance();
       }, 3000);
@@ -403,15 +434,12 @@ export default function AmmoraTerminalPage() {
               <div className="bg-slate-900 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs flex items-center gap-2">
                 <Wallet className="w-3.5 h-3.5 text-emerald-400" />
                 <span className="text-slate-200">{address?.slice(0, 6)}...{address?.slice(-4)}</span>
-                {balanceData ? (
-                  <span className="text-emerald-400 font-bold border-l border-slate-800 pl-2">
-                    {parseFloat(formatEther(balanceData.value)).toFixed(3)} {balanceData.symbol}
-                  </span>
-                ) : (
-                  <button onClick={() => refetchEthBalance()} className="text-amber-400 text-[10px] underline ml-1">
-                    Fetch Bal
-                  </button>
-                )}
+                <span className="text-emerald-400 font-bold border-l border-slate-800 pl-2 flex items-center gap-1">
+                  {isFetchingEth ? <Loader2 className="w-3 h-3 animate-spin" /> : `${directEthBalance} ETH`}
+                </span>
+                <button onClick={fetchNativeEthBalance} title="Refresh Balance" className="text-slate-400 hover:text-emerald-400">
+                  <RefreshCw className="w-3 h-3" />
+                </button>
               </div>
               <button
                 onClick={() => disconnect()}
@@ -437,7 +465,7 @@ export default function AmmoraTerminalPage() {
         <div className="max-w-7xl mx-auto mb-6 p-4 bg-rose-950/40 border border-rose-800 rounded-xl flex items-center justify-between gap-4 animate-bounce">
           <div className="flex items-center gap-3 text-rose-300 text-xs">
             <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
-            <span><strong>Uyarı:</strong> Cüzdanın GIWA Sepolia ağında değil. Bakiyenin görünmesi ve işlem yapabilmek için lütfen ağı değiştir.</span>
+            <span><strong>Uyarı:</strong> Cüzdanın GIWA Sepolia ağında değil. Lütfen bakiyenizi doğru görebilmek ve işlem yapabilmek için ağı değiştirin.</span>
           </div>
           <button
             onClick={() => switchChain && switchChain({ chainId: targetChainId })}
@@ -758,11 +786,14 @@ export default function AmmoraTerminalPage() {
             <div className="space-y-2">
               <div className="flex justify-between text-xs text-slate-400">
                 <label>Amount ({swapMode === "buy" ? "ETH" : selectedLaunch.symbol})</label>
-                <span className="font-bold text-slate-200">
+                <span className="font-bold text-slate-200 flex items-center gap-1">
                   {swapMode === "buy"
-                    ? `ETH Bal: ${balanceData ? parseFloat(formatEther(balanceData.value)).toFixed(4) : "0.00"}`
+                    ? `ETH Bal: ${directEthBalance}`
                     : `${selectedLaunch?.symbol} Bal: ${parseFloat(formattedTokenBalance).toFixed(2)}`
                   }
+                  <button onClick={fetchNativeEthBalance} className="text-slate-500 hover:text-emerald-400 ml-1">
+                    <RefreshCw className="w-3 h-3" />
+                  </button>
                 </span>
               </div>
 
@@ -825,7 +856,7 @@ export default function AmmoraTerminalPage() {
                 {txError && (
                   <div className="flex items-center gap-2 text-rose-400">
                     <AlertCircle className="w-4 h-4 shrink-0" />
-                    <span className="break-all">{txError.slice(0, 80)}...</span>
+                    <span className="break-all">{txError.slice(0, 100)}</span>
                   </div>
                 )}
                 {txHash && (
@@ -845,10 +876,14 @@ export default function AmmoraTerminalPage() {
             {/* Main Action Button */}
             <button
               onClick={handleExecuteSwap}
-              disabled={isPending || isConfirming}
+              disabled={isPending || isConfirming || (!hasEnoughBalance && isConnected && !isWrongNetwork) || isMockAddress}
               className={`w-full font-bold py-3.5 rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-lg ${
                 isWrongNetwork 
                   ? "bg-rose-600 hover:bg-rose-500 text-white" 
+                  : isMockAddress
+                  ? "bg-amber-950/80 border border-amber-800 text-amber-400 cursor-not-allowed"
+                  : !hasEnoughBalance
+                  ? "bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed"
                   : swapMode === "buy"
                   ? "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white shadow-emerald-950/50"
                   : "bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 text-white shadow-rose-950/50"
@@ -861,6 +896,10 @@ export default function AmmoraTerminalPage() {
                 </>
               ) : isWrongNetwork ? (
                 "Switch to GIWA Sepolia Network"
+              ) : isMockAddress ? (
+                "Mock Address (Non-tradeable)"
+              ) : !hasEnoughBalance ? (
+                `Insufficient ${swapMode === "buy" ? "ETH" : selectedLaunch?.symbol} Balance`
               ) : (
                 `Submit ${swapMode.toUpperCase()} Order`
               )}
