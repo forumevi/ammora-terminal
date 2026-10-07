@@ -101,6 +101,7 @@ export default function AmmoraTerminalPage() {
   const publicClient = usePublicClient();
 
   const [directEthBalance, setDirectEthBalance] = useState<string>("0.00");
+  const [directTokenBalance, setDirectTokenBalance] = useState<string>("0");
   const [isFetchingEth, setIsFetchingEth] = useState<boolean>(false);
 
   const { data: balanceData, refetch: refetchEthBalance } = useBalance({ address });
@@ -124,10 +125,10 @@ export default function AmmoraTerminalPage() {
   const [swapMode, setSwapMode] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState<string>("0.001");
 
-  // Wagmi build-in receipt hook
+  // Wagmi receipt hook
   const { isLoading: isHookConfirming, isSuccess: isHookSuccess } = useWaitForTransactionReceipt({
     hash: txHash,
-    pollingInterval: 1000, // Direct 1s polling interval for GIWA network
+    pollingInterval: 1000,
   });
 
   function getField(item: any, keys: string[]) {
@@ -178,7 +179,7 @@ export default function AmmoraTerminalPage() {
       const balanceInWei = BigInt(hexBalance);
       const formatted = formatEther(balanceInWei);
       setDirectEthBalance(parseFloat(formatted).toFixed(4));
-   } catch (err) {
+    } catch (err) {
       if (balanceData) {
         setDirectEthBalance(parseFloat(formatEther(balanceData.value)).toFixed(4));
       }
@@ -187,14 +188,36 @@ export default function AmmoraTerminalPage() {
     }
   }, [address, balanceData]);
 
+  // Doğrudan RPC uzerinden ERC-20 Token Bakiyesi Zorlama
+  const fetchDirectTokenBalance = useCallback(async () => {
+    if (!address || !activeTokenAddr || !isAddress(activeTokenAddr)) return;
+    try {
+      const cleanAddress = address.replace("0x", "").padStart(64, "0");
+      const data = `0x70a08231${cleanAddress}`;
+
+      if (typeof window !== "undefined" && (window as any).ethereum) {
+        const hexBalance = await (window as any).ethereum.request({
+          method: "eth_call",
+          params: [{ to: activeTokenAddr, data }, "latest"],
+        });
+        if (hexBalance && hexBalance !== "0x") {
+          const balanceBigInt = BigInt(hexBalance);
+          setDirectTokenBalance(formatEther(balanceBigInt));
+        }
+      }
+    } catch (err) {
+      console.error("Token balance fetch error:", err);
+    }
+  }, [address, activeTokenAddr]);
+
   const refreshAllBalances = useCallback(() => {
     fetchNativeEthBalance();
+    fetchDirectTokenBalance();
     refetchTokenBalance();
     refetchAllowance();
     refetchEthBalance();
-  }, [fetchNativeEthBalance, refetchTokenBalance, refetchAllowance, refetchEthBalance]);
+  }, [fetchNativeEthBalance, fetchDirectTokenBalance, refetchTokenBalance, refetchAllowance, refetchEthBalance]);
 
-  // Handle transaction confirmation via Viem publicClient fallback
   useEffect(() => {
     if (!txHash) return;
 
@@ -206,7 +229,7 @@ export default function AmmoraTerminalPage() {
         if (publicClient) {
           const receipt = await publicClient.waitForTransactionReceipt({
             hash: txHash,
-            timeout: 15_000, // 15 seconds max wait
+            timeout: 15_000,
           });
           if (receipt && isMounted) {
             setIsConfirmedSuccess(true);
@@ -215,14 +238,13 @@ export default function AmmoraTerminalPage() {
           }
         }
       } catch (err) {
-        // Fallback: Force refresh balances anyway after 4 seconds as fallback
         setTimeout(() => {
           if (isMounted) {
             setIsConfirmedSuccess(true);
             setIsManualConfirming(false);
             refreshAllBalances();
           }
-        }, 4000);
+        }, 3000);
       }
     };
 
@@ -299,20 +321,24 @@ export default function AmmoraTerminalPage() {
       });
   }, [launches, searchQuery, sortBy]);
 
+  const currentEffectiveTokenBalance = parseFloat(directTokenBalance) > 0 
+    ? directTokenBalance 
+    : formattedTokenBalance;
+
   const handleSetPercentage = (percentage: number) => {
     if (swapMode === "buy") {
       const ethVal = parseFloat(directEthBalance) || 0;
       const usableEth = Math.max(0, ethVal - 0.0005);
       setAmount((usableEth * (percentage / 100)).toFixed(5));
     } else {
-      const tokenVal = parseFloat(formattedTokenBalance) || 0;
+      const tokenVal = parseFloat(currentEffectiveTokenBalance) || 0;
       setAmount((tokenVal * (percentage / 100)).toFixed(4));
     }
   };
 
   const normalizedAmount = amount.replace(",", ".");
   const activeEthVal = parseFloat(directEthBalance) || 0;
-  const activeTokenVal = parseFloat(formattedTokenBalance) || 0;
+  const activeTokenVal = parseFloat(currentEffectiveTokenBalance) || 0;
   const inputAmount = parseFloat(normalizedAmount) || 0;
 
   const hasEnoughBalance = swapMode === "buy" 
@@ -461,7 +487,7 @@ export default function AmmoraTerminalPage() {
                 <span className="text-emerald-400 font-bold border-l border-slate-800 pl-2 flex items-center gap-1">
                   {isFetchingEth ? <Loader2 className="w-3 h-3 animate-spin" /> : `${directEthBalance} ETH`}
                 </span>
-                <button onClick={fetchNativeEthBalance} title="Refresh Balance" className="text-slate-400 hover:text-emerald-400">
+                <button onClick={refreshAllBalances} title="Refresh Balance" className="text-slate-400 hover:text-emerald-400">
                   <RefreshCw className="w-3 h-3" />
                 </button>
               </div>
@@ -484,7 +510,7 @@ export default function AmmoraTerminalPage() {
         </div>
       </header>
 
-      {/* Network Warning Banner */}
+      {/* Network Warning */}
       {isWrongNetwork && (
         <div className="max-w-7xl mx-auto mb-6 p-4 bg-rose-950/40 border border-rose-800 rounded-xl flex items-center justify-between gap-4 animate-bounce">
           <div className="flex items-center gap-3 text-rose-300 text-xs">
@@ -539,7 +565,7 @@ export default function AmmoraTerminalPage() {
         </div>
       </section>
 
-      {/* Key Metrics */}
+      {/* Main Metrics */}
       <main className="space-y-6 max-w-7xl mx-auto">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
           <div className="bg-slate-900/80 border border-slate-800/80 p-4 rounded-xl">
@@ -671,6 +697,8 @@ export default function AmmoraTerminalPage() {
                           setIsConfirmedSuccess(false);
                           setTxHash(undefined);
                           setTxError(null);
+                          setDirectTokenBalance("0");
+                          refreshAllBalances();
                         }}
                         className="w-full md:w-auto flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold px-4 py-2 rounded-xl text-xs transition shadow-lg shadow-emerald-950/50"
                       >
@@ -722,9 +750,16 @@ export default function AmmoraTerminalPage() {
             <div className="space-y-2">
               <div className="flex justify-between text-xs text-slate-400">
                 <label>Amount ({swapMode === "buy" ? "ETH" : selectedLaunch.symbol})</label>
-                <span className="font-bold text-slate-200">
-                  {swapMode === "buy" ? `Balance: ${directEthBalance} ETH` : `Balance: ${formattedTokenBalance}`}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-slate-200">
+                    {swapMode === "buy" 
+                      ? `Balance: ${directEthBalance} ETH` 
+                      : `Balance: ${parseFloat(currentEffectiveTokenBalance).toFixed(4)} ${selectedLaunch.symbol}`}
+                  </span>
+                  <button onClick={refreshAllBalances} title="Sync Balance" className="text-slate-500 hover:text-emerald-400">
+                    <RefreshCw className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
 
               <input
