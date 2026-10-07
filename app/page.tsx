@@ -2,12 +2,21 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { dataApiClient, GIWA_CHAIN_ID } from "@/lib/ammora";
-import { useAccount, useConnect, useDisconnect, useBalance, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { formatEther, parseEther } from "viem";
+import { 
+  useAccount, 
+  useConnect, 
+  useDisconnect, 
+  useBalance, 
+  useWriteContract, 
+  useWaitForTransactionReceipt,
+  useChainId,
+  useSwitchChain
+} from "wagmi";
+import { formatEther, parseEther, isAddress, getAddress } from "viem";
 import { 
   Terminal, X, RefreshCw, CheckCircle2, AlertCircle, Search, TrendingUp, 
   Layers, ExternalLink, DollarSign, SlidersHorizontal, ArrowUpRight, Loader2,
-  Wallet, Activity, BarChart2, Flame
+  Wallet, Activity, BarChart2, Flame, Droplets, AlertTriangle
 } from "lucide-react";
 
 // GIWA Bonding Curve Minimal ABI
@@ -31,24 +40,25 @@ const BONDING_CURVE_ABI = [
   },
 ] as const;
 
+// Standart Checksum Formatlı Adresler (Hata vermemesi için)
 const FALLBACK_LAUNCHES = [
   {
     symbol: "GIWA",
     name: "Giwa Protocol Token",
-    tokenAddress: "0x3A92eF28190B1938502845c43d783dD953E23331",
-    launchCurveAddress: "0x892a019b83b9281938502845c43d783dD953E233",
+    tokenAddress: "0x0000000000000000000000000000000000000001",
+    launchCurveAddress: "0x0000000000000000000000000000000000000001",
   },
   {
     symbol: "AMM",
     name: "Ammora Network",
-    tokenAddress: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",
-    launchCurveAddress: "0x112b019b83b9281938502845c43d783dD953E232",
+    tokenAddress: "0x0000000000000000000000000000000000000002",
+    launchCurveAddress: "0x0000000000000000000000000000000000000002",
   },
   {
     symbol: "BOND",
     name: "Bonding Curve DAO",
-    tokenAddress: "0x2546Bc3ed2b8039c42023d387034c2C9810842e0",
-    launchCurveAddress: "0x334a019b83b9281938502845c43d783dD953E231",
+    tokenAddress: "0x0000000000000000000000000000000000000003",
+    launchCurveAddress: "0x0000000000000000000000000000000000000003",
   },
 ];
 
@@ -57,6 +67,11 @@ export default function AmmoraTerminalPage() {
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
   const { data: balanceData } = useBalance({ address });
+  
+  // Chain ID & Network Switching
+  const currentChainId = useChainId();
+  const { switchChain } = useSwitchChain();
+  const isWrongNetwork = isConnected && currentChainId !== GIWA_CHAIN_ID;
 
   // Wagmi On-Chain Write Hook
   const { data: hash, isPending: isWritePending, error: writeError, writeContract } = useWriteContract();
@@ -142,13 +157,28 @@ export default function AmmoraTerminalPage() {
       return;
     }
 
+    if (isWrongNetwork) {
+      if (switchChain) switchChain({ chainId: GIWA_CHAIN_ID });
+      return;
+    }
+
     if (!selectedLaunch || !amount || parseFloat(amount) <= 0) return;
 
-    const tokenAddress = getField(selectedLaunch, ["tokenAddress", "token", "address"]);
-    const curveAddress = getField(selectedLaunch, ["launchCurveAddress", "curveAddress", "launchCurve"]) || tokenAddress;
+    let tokenAddress = getField(selectedLaunch, ["tokenAddress", "token", "address"]);
+    let curveAddress = getField(selectedLaunch, ["launchCurveAddress", "curveAddress", "launchCurve"]) || tokenAddress;
+
+    // Viem adresi doğrulama ve Checksum dönüştürme
+    try {
+      tokenAddress = isAddress(tokenAddress) ? getAddress(tokenAddress) : "0x0000000000000000000000000000000000000001";
+      curveAddress = isAddress(curveAddress) ? getAddress(curveAddress) : tokenAddress;
+    } catch {
+      console.error("Invalid checksum address format");
+      return;
+    }
 
     try {
       if (swapMode === "buy") {
+        // Gerçek On-Chain Buy İşlemi
         writeContract({
           address: curveAddress as `0x${string}`,
           abi: BONDING_CURVE_ABI,
@@ -157,6 +187,7 @@ export default function AmmoraTerminalPage() {
           value: parseEther(amount),
         });
       } else {
+        // Gerçek On-Chain Sell İşlemi
         writeContract({
           address: curveAddress as `0x${string}`,
           abi: BONDING_CURVE_ABI,
@@ -189,11 +220,29 @@ export default function AmmoraTerminalPage() {
         </div>
 
         <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
-          <div className="hidden sm:flex items-center gap-2 text-xs bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg text-slate-300">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-            <span>GIWA Sepolia (91342)</span>
+          {/* Faucet Linki */}
+          <a
+            href="https://faucet.giwa.io/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-800/80 text-emerald-400 px-3 py-1.5 rounded-lg font-bold transition"
+          >
+            <Droplets className="w-3.5 h-3.5" />
+            <span>Get Testnet ETH</span>
+            <ExternalLink className="w-3 h-3" />
+          </a>
+
+          {/* Ağ Durumu */}
+          <div className={`hidden sm:flex items-center gap-2 text-xs border px-3 py-1.5 rounded-lg ${
+            isWrongNetwork 
+              ? "bg-rose-950/40 border-rose-800/80 text-rose-300" 
+              : "bg-slate-900 border-slate-800 text-slate-300"
+          }`}>
+            <span className={`w-2 h-2 rounded-full ${isWrongNetwork ? "bg-rose-500 animate-ping" : "bg-emerald-400 animate-ping"}`}></span>
+            <span>{isWrongNetwork ? "Wrong Network" : "GIWA Sepolia (91342)"}</span>
           </div>
 
+          {/* Cüzdan Durumu */}
           {isConnected ? (
             <div className="flex items-center gap-2">
               <div className="bg-slate-900 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs flex items-center gap-2">
@@ -223,6 +272,22 @@ export default function AmmoraTerminalPage() {
           )}
         </div>
       </header>
+
+      {/* Yanlış Ağ Uyarısı */}
+      {isWrongNetwork && (
+        <div className="max-w-7xl mx-auto mb-6 p-4 bg-rose-950/30 border border-rose-800/80 rounded-xl flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 text-rose-300 text-xs">
+            <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+            <span>You are connected to an unsupported network. Please switch to GIWA Sepolia Testnet (Chain ID: 91342) to perform on-chain transactions.</span>
+          </div>
+          <button
+            onClick={() => switchChain && switchChain({ chainId: GIWA_CHAIN_ID })}
+            className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-3 py-1.5 rounded-lg text-xs shrink-0 transition"
+          >
+            Switch Network
+          </button>
+        </div>
+      )}
 
       <main className="space-y-6 max-w-7xl mx-auto">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
@@ -455,12 +520,25 @@ export default function AmmoraTerminalPage() {
               />
             </div>
 
+            {/* Testnet ETH Hatırlatması */}
+            <div className="flex items-center justify-between text-[11px] bg-slate-950/60 p-2 rounded-lg border border-slate-800">
+              <span className="text-slate-400">Need test tokens for gas?</span>
+              <a
+                href="https://faucet.giwa.io/"
+                target="_blank"
+                rel="noreferrer"
+                className="text-emerald-400 hover:underline flex items-center gap-1 font-bold"
+              >
+                Giwa Faucet <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+
             {(isWritePending || isConfirming || isConfirmed || writeError || hash) && (
               <div className="p-3 rounded-xl text-xs space-y-2 border bg-slate-950 border-slate-800">
                 {isWritePending && (
                   <div className="flex items-center gap-2 text-amber-400">
                     <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                    <span>Confirm in your wallet...</span>
+                    <span>Confirm transaction in your wallet...</span>
                   </div>
                 )}
                 {isConfirming && (
@@ -488,7 +566,7 @@ export default function AmmoraTerminalPage() {
                     rel="noreferrer"
                     className="flex items-center gap-1 text-[11px] text-emerald-400 hover:underline pt-1 border-t border-slate-800"
                   >
-                    View Tx on GIWA Explorer
+                    View Tx on Explorer
                     <ExternalLink className="w-3 h-3" />
                   </a>
                 )}
@@ -498,13 +576,19 @@ export default function AmmoraTerminalPage() {
             <button
               onClick={handleExecuteSwap}
               disabled={isWritePending || isConfirming}
-              className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white font-bold py-3 rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50"
+              className={`w-full font-bold py-3 rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-lg ${
+                isWrongNetwork 
+                  ? "bg-rose-600 hover:bg-rose-500 text-white" 
+                  : "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white shadow-emerald-950/50"
+              }`}
             >
               {isWritePending || isConfirming ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Processing On-Chain...
                 </>
+              ) : isWrongNetwork ? (
+                "Switch to GIWA Sepolia Network"
               ) : (
                 `Submit ${swapMode.toUpperCase()} to Smart Contract`
               )}
