@@ -563,14 +563,14 @@ export default function AmmoraTerminalPage() {
                 )}
                 {hash && (
                   <a
-                    href={`https://sepolia.etherscan.io/tx/${hash}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-1 text-[11px] text-emerald-400 hover:underline pt-1 border-t border-slate-800"
-                  >
-                    View Tx on Explorer
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
+  href={`https://sepolia.etherscan.io/tx/${hash}`}
+  target="_blank"
+  rel="noreferrer"
+  className="flex items-center gap-1 text-[11px] text-emerald-400 hover:underline pt-1 border-t border-slate-800"
+>
+  View Tx on Explorer
+  <ExternalLink className="w-3 h-3" />
+</a>
                 )}
               </div>
             )}
