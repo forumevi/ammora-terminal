@@ -68,7 +68,7 @@ export default function AmmoraTerminalPage() {
   const { disconnect } = useDisconnect();
   const { data: balanceData } = useBalance({ address });
   
-  // Chain ID & Network Switching (bigint / number uyumu sağlandı)
+  // Chain ID & Network Switching
   const currentChainId = useChainId();
   const { switchChain } = useSwitchChain();
   const targetChainId = Number(GIWA_CHAIN_ID);
@@ -92,7 +92,8 @@ export default function AmmoraTerminalPage() {
   useEffect(() => {
     async function fetchLaunches() {
       try {
-        const response = (await dataApiClient.getLaunches({ chainId: targetChainId })) as any;
+        // chainId parametresi string | bigint olarak gönderildi (TS2322 çözüldü)
+        const response = (await dataApiClient.getLaunches({ chainId: String(targetChainId) })) as any;
         const launchArray = Array.isArray(response)
           ? response
           : response?.launches || response?.data || response?.items || [];
