@@ -71,13 +71,13 @@ const ERC20_ABI = [
   },
 ] as const;
 
-// tAMM Token Varsayılan Listesi
+// tAMM Token Varsayılan Listesi (Lütfen kendi gerçek kontrat adreslerinizi buraya girin)
 const DEFAULT_LAUNCHES = [
   {
     symbol: "tAMM",
     name: "Ammora Test Token",
-    tokenAddress: "0x0000000000000000000000000000000000000001", // Gerçek tAMM adresi buraya girilebilir
-    launchCurveAddress: "0x0000000000000000000000000000000000000001",
+    tokenAddress: "0x0000000000000000000000000000000000000001", // Gerçek tAMM Token Kontrat Adresi
+    launchCurveAddress: "0x0000000000000000000000000000000000000001", // Gerçek Bonding Curve Kontrat Adresi
   },
   {
     symbol: "GIWA",
@@ -281,13 +281,23 @@ export default function AmmoraTerminalPage() {
       return;
     }
 
-    let tokenAddress = getField(selectedLaunch, ["tokenAddress", "token", "address"]);
-    let curveAddress = getField(selectedLaunch, ["launchCurveAddress", "curveAddress", "launchCurve"]) || tokenAddress;
+    let rawTokenAddress = getField(selectedLaunch, ["tokenAddress", "token", "address"]);
+    let rawCurveAddress = getField(selectedLaunch, ["launchCurveAddress", "curveAddress", "launchCurve"]) || rawTokenAddress;
 
-    try {
-      tokenAddress = isAddress(tokenAddress) ? getAddress(tokenAddress) : "0x0000000000000000000000000000000000000001";
-      curveAddress = isAddress(curveAddress) ? getAddress(curveAddress) : tokenAddress;
-    } catch {
+    let tokenAddress: `0x${string}` | null = null;
+    let curveAddress: `0x${string}` | null = null;
+
+    if (rawTokenAddress && isAddress(rawTokenAddress)) {
+      tokenAddress = getAddress(rawTokenAddress) as `0x${string}`;
+    }
+    if (rawCurveAddress && isAddress(rawCurveAddress)) {
+      curveAddress = getAddress(rawCurveAddress) as `0x${string}`;
+    } else if (tokenAddress) {
+      curveAddress = tokenAddress;
+    }
+
+    if (!tokenAddress || !curveAddress) {
+      setTxError("Lütfen geçerli bir token ve bonding curve adresi tanımlayın.");
       return;
     }
 
@@ -304,29 +314,29 @@ export default function AmmoraTerminalPage() {
 
       if (swapMode === "buy") {
         hash = await writeContractAsync({
-          address: curveAddress as `0x${string}`,
+          address: curveAddress,
           abi: BONDING_CURVE_ABI,
           functionName: "buyToken",
-          args: [tokenAddress as `0x${string}`],
+          args: [tokenAddress],
           value: parsedAmount,
         });
       } else {
         if (rawAllowance < parsedAmount) {
           setIsConfirming(true);
           await writeContractAsync({
-            address: tokenAddress as `0x${string}`,
+            address: tokenAddress,
             abi: ERC20_ABI,
             functionName: "approve",
-            args: [curveAddress as `0x${string}`, parsedAmount],
+            args: [curveAddress, parsedAmount],
           });
           await refetchAllowance();
         }
 
         hash = await writeContractAsync({
-          address: curveAddress as `0x${string}`,
+          address: curveAddress,
           abi: BONDING_CURVE_ABI,
           functionName: "sellToken",
-          args: [tokenAddress as `0x${string}`, parsedAmount],
+          args: [tokenAddress, parsedAmount],
         });
       }
 
@@ -627,7 +637,7 @@ export default function AmmoraTerminalPage() {
         </div>
       </main>
 
-      {/* Trade & Swap Modal (Buton Düzeltmesi Dahil) */}
+      {/* Trade & Swap Modal */}
       {selectedLaunch && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-6 font-mono space-y-4 shadow-2xl relative">
@@ -700,7 +710,7 @@ export default function AmmoraTerminalPage() {
               </div>
             )}
 
-            {/* Çalışan Swap Butonu */}
+            {/* Swap Butonu */}
             <button
               onClick={handleExecuteSwap}
               disabled={isPending || isConfirming || (!hasEnoughBalance && isConnected)}
