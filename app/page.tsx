@@ -76,7 +76,10 @@ export default function AmmoraTerminalPage() {
 
   // Wagmi On-Chain Write Hook
   const { data: hash, isPending: isWritePending, error: writeError, writeContract } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
+  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ 
+    hash,
+    chainId: targetChainId,
+  });
 
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [launches, setLaunches] = useState<any[]>([]);
@@ -92,7 +95,6 @@ export default function AmmoraTerminalPage() {
   useEffect(() => {
     async function fetchLaunches() {
       try {
-        // chainId parametresi string | bigint olarak gönderildi (TS2322 çözüldü)
         const response = (await dataApiClient.getLaunches({ chainId: String(targetChainId) })) as any;
         const launchArray = Array.isArray(response)
           ? response
@@ -106,7 +108,8 @@ export default function AmmoraTerminalPage() {
       } catch (err) {
         console.error("Data API Fetch Error:", err);
         setLaunches(FALLBACK_LAUNCHES);
-      } finally {
+      } font-mono
+      finally {
         setLoading(false);
       }
     }
@@ -169,7 +172,6 @@ export default function AmmoraTerminalPage() {
     let tokenAddress = getField(selectedLaunch, ["tokenAddress", "token", "address"]);
     let curveAddress = getField(selectedLaunch, ["launchCurveAddress", "curveAddress", "launchCurve"]) || tokenAddress;
 
-    // Viem adresi doğrulama ve Checksum dönüştürme
     try {
       tokenAddress = isAddress(tokenAddress) ? getAddress(tokenAddress) : "0x0000000000000000000000000000000000000001";
       curveAddress = isAddress(curveAddress) ? getAddress(curveAddress) : tokenAddress;
@@ -180,21 +182,21 @@ export default function AmmoraTerminalPage() {
 
     try {
       if (swapMode === "buy") {
-        // Gerçek On-Chain Buy İşlemi
         writeContract({
           address: curveAddress as `0x${string}`,
           abi: BONDING_CURVE_ABI,
           functionName: "buyToken",
           args: [tokenAddress as `0x${string}`],
           value: parseEther(amount),
+          chainId: targetChainId,
         });
       } else {
-        // Gerçek On-Chain Sell İşlemi
         writeContract({
           address: curveAddress as `0x${string}`,
           abi: BONDING_CURVE_ABI,
           functionName: "sellToken",
           args: [tokenAddress as `0x${string}`, parseEther(amount)],
+          chainId: targetChainId,
         });
       }
     } catch (err) {
@@ -563,14 +565,14 @@ export default function AmmoraTerminalPage() {
                 )}
                 {hash && (
                   <a
-  href={`https://sepolia.etherscan.io/tx/${hash}`}
-  target="_blank"
-  rel="noreferrer"
-  className="flex items-center gap-1 text-[11px] text-emerald-400 hover:underline pt-1 border-t border-slate-800"
->
-  View Tx on Explorer
-  <ExternalLink className="w-3 h-3" />
-</a>
+                    href={`https://sepolia-explorer.giwa.io/tx/${hash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1 text-[11px] text-emerald-400 hover:underline pt-1 border-t border-slate-800"
+                  >
+                    View Tx on Explorer
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
                 )}
               </div>
             )}
