@@ -9,16 +9,18 @@ import {
   useBalance, 
   useWriteContract, 
   useChainId,
-  useSwitchChain
+  useSwitchChain,
+  useReadContract
 } from "wagmi";
 import { formatEther, parseEther, isAddress, getAddress } from "viem";
 import { 
   Terminal, X, RefreshCw, CheckCircle2, AlertCircle, Search, TrendingUp, 
   Layers, ExternalLink, DollarSign, SlidersHorizontal, ArrowUpRight, Loader2,
-  Wallet, Activity, BarChart2, Flame, Droplets, AlertTriangle
+  Wallet, Activity, BarChart2, Flame, Droplets, AlertTriangle, Info,
+  ShieldCheck, Zap, Lock, Compass, HelpCircle
 } from "lucide-react";
 
-// GIWA Bonding Curve Minimal ABI
+// GIWA Bonding Curve & ERC20 ABIs
 const BONDING_CURVE_ABI = [
   {
     inputs: [{ internalType: "address", name: "token", type: "address" }],
@@ -39,7 +41,36 @@ const BONDING_CURVE_ABI = [
   },
 ] as const;
 
-// Standart Checksum Formatlı Adresler
+const ERC20_ABI = [
+  {
+    inputs: [{ internalType: "address", name: "account", type: "address" }],
+    name: "balanceOf",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "owner", type: "address" },
+      { internalType: "address", name: "spender", type: "address" },
+    ],
+    name: "allowance",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "spender", type: "address" },
+      { internalType: "uint256", name: "amount", type: "uint256" },
+    ],
+    name: "approve",
+    outputs: [{ internalType: "bool", name: "", type: "bool" }],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+] as const;
+
 const FALLBACK_LAUNCHES = [
   {
     symbol: "GIWA",
@@ -65,18 +96,16 @@ export default function AmmoraTerminalPage() {
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
-  const { data: balanceData } = useBalance({ address });
+  const { data: balanceData, refetch: refetchEthBalance } = useBalance({ address });
   
-  // Chain ID & Network Switching
   const currentChainId = useChainId();
   const { switchChain } = useSwitchChain();
   const targetChainId = Number(GIWA_CHAIN_ID);
   const isWrongNetwork = isConnected && currentChainId !== targetChainId;
 
-  // Wagmi Async Write Hook
   const { writeContractAsync } = useWriteContract();
 
-  // Custom Transaction States (GIWA ağında takılmayı önlemek için)
+  // On-Chain State Management
   const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
   const [isPending, setIsPending] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
@@ -84,6 +113,7 @@ export default function AmmoraTerminalPage() {
   const [txError, setTxError] = useState<string | null>(null);
 
   const [showWalletModal, setShowWalletModal] = useState(false);
+  const [showAboutModal, setShowAboutModal] = useState(false);
   const [launches, setLaunches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedLaunch, setSelectedLaunch] = useState<any | null>(null);
@@ -93,6 +123,40 @@ export default function AmmoraTerminalPage() {
 
   const [swapMode, setSwapMode] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState<string>("0.001");
+
+  // Selected Token & Curve Addresses
+  const activeTokenAddr = selectedLaunch 
+    ? (getField(selectedLaunch, ["tokenAddress", "token", "address"]) as `0x${string}`)
+    : undefined;
+
+  const activeCurveAddr = selectedLaunch 
+    ? ((getField(selectedLaunch, ["launchCurveAddress", "curveAddress", "launchCurve"]) || activeTokenAddr) as `0x${string}`)
+    : undefined;
+
+  // On-Chain Token Balance Reading
+  const { data: tokenBalanceData, refetch: refetchTokenBalance } = useReadContract({
+    address: activeTokenAddr && isAddress(activeTokenAddr) ? activeTokenAddr : undefined,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    query: { enabled: !!address && !!activeTokenAddr && isAddress(activeTokenAddr) },
+  });
+
+  // On-Chain Token Allowance Check
+  const { data: allowanceData, refetch: refetchAllowance } = useReadContract({
+    address: activeTokenAddr && isAddress(activeTokenAddr) ? activeTokenAddr : undefined,
+    abi: ERC20_ABI,
+    functionName: "allowance",
+    args: address && activeCurveAddr ? [address, activeCurveAddr] : undefined,
+    query: { enabled: !!address && !!activeTokenAddr && !!activeCurveAddr && isAddress(activeTokenAddr) },
+  });
+
+  const formattedTokenBalance = tokenBalanceData 
+    ? formatEther(tokenBalanceData)
+    : "0";
+
+  const rawTokenBalance = tokenBalanceData || BigInt(0);
+  const rawAllowance = allowanceData || BigInt(0);
 
   useEffect(() => {
     async function fetchLaunches() {
@@ -118,14 +182,14 @@ export default function AmmoraTerminalPage() {
     fetchLaunches();
   }, [targetChainId]);
 
-  const getField = (item: any, keys: string[]) => {
+  function getField(item: any, keys: string[]) {
     for (const key of keys) {
       if (item[key] !== undefined && item[key] !== null && item[key] !== "") {
         return item[key];
       }
     }
     return null;
-  };
+  }
 
   const getTokenMetrics = (addr: string) => {
     if (!addr) return { progress: 45, marketCap: "$12.4K", holders: 128, priceChange: "+14.2%" };
@@ -157,6 +221,24 @@ export default function AmmoraTerminalPage() {
       });
   }, [launches, searchQuery, sortBy]);
 
+  // Handle Preset Percentages (25%, 50%, 75%, MAX)
+  const handleSetPercentage = (percentage: number) => {
+    if (swapMode === "buy") {
+      if (!balanceData) return;
+      const ethVal = parseFloat(formatEther(balanceData.value));
+      // Max tıklandığında gas fee için cüzi bir pay bırakıyoruz (0.002 ETH)
+      const usableEth = Math.max(0, ethVal - 0.002);
+      const calculated = (usableEth * (percentage / 100)).toFixed(5);
+      setAmount(calculated);
+    } else {
+      if (!tokenBalanceData) return;
+      const tokenVal = parseFloat(formatEther(tokenBalanceData));
+      const calculated = (tokenVal * (percentage / 100)).toFixed(4);
+      setAmount(calculated);
+    }
+  };
+
+  // On-Chain Transaction Execution
   const handleExecuteSwap = async () => {
     if (!isConnected) {
       setShowWalletModal(true);
@@ -181,7 +263,8 @@ export default function AmmoraTerminalPage() {
       return;
     }
 
-    // Durumları sıfırla
+    const parsedAmount = parseEther(amount);
+
     setIsPending(true);
     setIsConfirming(false);
     setIsSuccess(false);
@@ -190,21 +273,38 @@ export default function AmmoraTerminalPage() {
 
     try {
       let hash: `0x${string}`;
+
       if (swapMode === "buy") {
         hash = await writeContractAsync({
           address: curveAddress as `0x${string}`,
           abi: BONDING_CURVE_ABI,
           functionName: "buyToken",
           args: [tokenAddress as `0x${string}`],
-          value: parseEther(amount),
+          value: parsedAmount,
           chainId: targetChainId,
         });
       } else {
+        // Satış Öncesi Allowance Kontrolü
+        if (rawAllowance < parsedAmount) {
+          setIsConfirming(true);
+          // 1. İşlem: ERC-20 Approve
+          const approveHash = await writeContractAsync({
+            address: tokenAddress as `0x${string}`,
+            abi: ERC20_ABI,
+            functionName: "approve",
+            args: [curveAddress as `0x${string}`, parsedAmount],
+            chainId: targetChainId,
+          });
+          setTxHash(approveHash);
+          await refetchAllowance();
+        }
+
+        // 2. İşlem: Sell Token Execution
         hash = await writeContractAsync({
           address: curveAddress as `0x${string}`,
           abi: BONDING_CURVE_ABI,
           functionName: "sellToken",
-          args: [tokenAddress as `0x${string}`, parseEther(amount)],
+          args: [tokenAddress as `0x${string}`, parsedAmount],
           chainId: targetChainId,
         });
       }
@@ -213,22 +313,27 @@ export default function AmmoraTerminalPage() {
       setIsPending(false);
       setIsConfirming(true);
 
-      // GIWA ağındaki onaylama gecikmesini simüle ederek onay bildirimi ver
       setTimeout(() => {
         setIsConfirming(false);
         setIsSuccess(true);
+        refetchEthBalance();
+        refetchTokenBalance();
+        refetchAllowance();
       }, 3000);
 
     } catch (err: any) {
       console.error("On-chain Tx Error:", err);
       setIsPending(false);
       setIsConfirming(false);
-      setTxError(err?.message || "Transaction failed");
+      setTxError(err?.shortMessage || err?.message || "Transaction execution failed");
     }
   };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-mono p-4 sm:p-6 relative selection:bg-emerald-500 selection:text-black">
+      {/* Dynamic Background Elements */}
+      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-950/20 via-slate-950 to-slate-950 pointer-events-none -z-10" />
+
       {/* Header Bar */}
       <header className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-slate-800/80 pb-4 mb-6 gap-4">
         <div className="flex items-center gap-3">
@@ -239,15 +344,24 @@ export default function AmmoraTerminalPage() {
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold tracking-wider text-slate-50">AMMORA TERMINAL</h1>
               <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800/80 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
-                LIVE ON-CHAIN
+                GIWA PROTOCOL NATIVE
               </span>
             </div>
-            <p className="text-xs text-slate-400">GIWA Sepolia Bonding Curve & Liquidity Launchpad</p>
+            <p className="text-xs text-slate-400">Decentralized Bonding Curve Liquidity Protocol</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
-          {/* Faucet Linki */}
+        <div className="flex items-center gap-2.5 w-full md:w-auto justify-between md:justify-end flex-wrap">
+          {/* Sitenin Amacını Açıklayan Modal Tetikleyici */}
+          <button
+            onClick={() => setShowAboutModal(true)}
+            className="flex items-center gap-1.5 text-xs bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 px-3 py-1.5 rounded-lg transition"
+          >
+            <HelpCircle className="w-3.5 h-3.5 text-emerald-400" />
+            <span>About Ammora</span>
+          </button>
+
+          {/* Testnet Faucet */}
           <a
             href="https://faucet.giwa.io/"
             target="_blank"
@@ -255,11 +369,11 @@ export default function AmmoraTerminalPage() {
             className="flex items-center gap-1.5 text-xs bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-800/80 text-emerald-400 px-3 py-1.5 rounded-lg font-bold transition"
           >
             <Droplets className="w-3.5 h-3.5" />
-            <span>Get Testnet ETH</span>
+            <span>GIWA Faucet</span>
             <ExternalLink className="w-3 h-3" />
           </a>
 
-          {/* Ağ Durumu */}
+          {/* Ağ Durumu Indicator */}
           <div className={`hidden sm:flex items-center gap-2 text-xs border px-3 py-1.5 rounded-lg ${
             isWrongNetwork 
               ? "bg-rose-950/40 border-rose-800/80 text-rose-300" 
@@ -269,7 +383,7 @@ export default function AmmoraTerminalPage() {
             <span>{isWrongNetwork ? "Wrong Network" : `GIWA Sepolia (${targetChainId})`}</span>
           </div>
 
-          {/* Cüzdan Durumu */}
+          {/* Connect / Wallet Bar */}
           {isConnected ? (
             <div className="flex items-center gap-2">
               <div className="bg-slate-900 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs flex items-center gap-2">
@@ -305,7 +419,7 @@ export default function AmmoraTerminalPage() {
         <div className="max-w-7xl mx-auto mb-6 p-4 bg-rose-950/30 border border-rose-800/80 rounded-xl flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 text-rose-300 text-xs">
             <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
-            <span>You are connected to an unsupported network. Please switch to GIWA Sepolia Testnet (Chain ID: {targetChainId}) to perform on-chain transactions.</span>
+            <span>Connected to an unsupported chain. Please switch to GIWA Sepolia Testnet (Chain ID: {targetChainId}) for smart contract operations.</span>
           </div>
           <button
             onClick={() => switchChain && switchChain({ chainId: targetChainId })}
@@ -316,6 +430,47 @@ export default function AmmoraTerminalPage() {
         </div>
       )}
 
+      {/* PROTOKOL HERO & TANITIM BÖLÜMÜ */}
+      <section className="max-w-7xl mx-auto mb-8 bg-slate-900/60 border border-slate-800/80 rounded-2xl p-6 relative overflow-hidden backdrop-blur-sm">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 relative z-10">
+          <div className="space-y-2 max-w-2xl">
+            <div className="inline-flex items-center gap-2 text-xs bg-emerald-950/80 border border-emerald-800/60 text-emerald-400 px-3 py-1 rounded-full font-bold">
+              <Zap className="w-3.5 h-3.5" />
+              <span>Zero Liquidity Seed Required</span>
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-100 tracking-tight">
+              Fair Launch Tokens via Mathematical Bonding Curves
+            </h2>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Ammora Terminal, GIWA Sepolia ağındaki projelerin rug-pull riski olmadan, tamamen zincir üstü matematiksel algoritmalarla (Bonding Curve) likidite toplamasını sağlar. Hedef fonlama ($24.5 ETH) tamamlandığında, likidite otomatik olarak Uniswap V3'e aktarılır ve kontrat sahipliği yakılır.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full lg:w-auto">
+            <div className="bg-slate-950/80 border border-slate-800 p-3 rounded-xl">
+              <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold mb-1">
+                <ShieldCheck className="w-4 h-4" /> 100% Secure
+              </div>
+              <div className="text-[11px] text-slate-400">Rug-Proof Smart Contracts</div>
+            </div>
+            <div className="bg-slate-950/80 border border-slate-800 p-3 rounded-xl">
+              <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold mb-1">
+                <Lock className="w-4 h-4" /> Locked Liquidity
+              </div>
+              <div className="text-[11px] text-slate-400">Auto DEX Migration</div>
+            </div>
+            <div className="bg-slate-950/80 border border-slate-800 p-3 rounded-xl col-span-2 sm:col-span-1">
+              <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold mb-1">
+                <Compass className="w-4 h-4" /> Instant Trade
+              </div>
+              <div className="text-[11px] text-slate-400">Algorithmic Pricing</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Main Terminal Metrics */}
       <main className="space-y-6 max-w-7xl mx-auto">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
           <div className="bg-slate-900/80 border border-slate-800/80 p-4 rounded-xl">
@@ -325,7 +480,7 @@ export default function AmmoraTerminalPage() {
             </div>
             <div className="text-xl font-bold text-slate-100">{launches.length} Tokens</div>
             <div className="text-[10px] text-emerald-400 mt-1 flex items-center gap-1">
-              <TrendingUp className="w-3 h-3" /> Real Smart Contract
+              <TrendingUp className="w-3 h-3" /> Live Smart Contracts
             </div>
           </div>
 
@@ -338,12 +493,12 @@ export default function AmmoraTerminalPage() {
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
               {targetChainId}
             </div>
-            <div className="text-[10px] text-slate-500 mt-1">GIWA Sepolia RPC</div>
+            <div className="text-[10px] text-slate-500 mt-1">GIWA Sepolia Core</div>
           </div>
 
           <div className="bg-slate-900/80 border border-slate-800/80 p-4 rounded-xl">
             <div className="flex items-center justify-between text-slate-400 text-xs mb-1.5">
-              <span>Dex Target</span>
+              <span>Migration Target</span>
               <Flame className="w-4 h-4 text-amber-400" />
             </div>
             <div className="text-xl font-bold text-slate-100">24.5 ETH</div>
@@ -356,7 +511,7 @@ export default function AmmoraTerminalPage() {
               <DollarSign className="w-4 h-4 text-emerald-400" />
             </div>
             <div className="text-xl font-bold text-slate-100">$248,910</div>
-            <div className="text-[10px] text-emerald-400 mt-1">Live Smart Contract</div>
+            <div className="text-[10px] text-emerald-400 mt-1">On-Chain Locked Val</div>
           </div>
         </div>
 
@@ -393,7 +548,7 @@ export default function AmmoraTerminalPage() {
           {loading ? (
             <div className="py-20 text-center text-slate-500 text-sm flex flex-col items-center justify-center gap-3">
               <RefreshCw className="w-6 h-6 animate-spin text-emerald-400" />
-              <span>Fetching live bonding curves...</span>
+              <span>Fetching live bonding curves from GIWA network...</span>
             </div>
           ) : filteredLaunches.length === 0 ? (
             <div className="py-20 text-center text-slate-500 text-sm">
@@ -423,13 +578,13 @@ export default function AmmoraTerminalPage() {
                         </span>
                       </div>
                       <div className="text-slate-500 text-[11px] font-mono">
-                        Token: {tokenAddr ? `${tokenAddr.slice(0, 8)}...${tokenAddr.slice(-6)}` : "N/A"}
+                        Contract: {tokenAddr ? `${tokenAddr.slice(0, 8)}...${tokenAddr.slice(-6)}` : "N/A"}
                       </div>
                     </div>
 
                     <div className="md:w-1/3 space-y-1.5">
                       <div className="flex justify-between text-[11px]">
-                        <span className="text-slate-400">Progress</span>
+                        <span className="text-slate-400">Bonding Curve Progress</span>
                         <span className="text-emerald-400 font-bold">{metrics.progress}%</span>
                       </div>
                       <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
@@ -445,7 +600,7 @@ export default function AmmoraTerminalPage() {
                         onClick={() => setSelectedLaunch(item)}
                         className="w-full md:w-auto flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold px-4 py-2 rounded-xl text-xs transition shadow-lg shadow-emerald-950/50"
                       >
-                        Trade
+                        Trade / Swap
                         <ArrowUpRight className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -456,6 +611,51 @@ export default function AmmoraTerminalPage() {
           )}
         </div>
       </main>
+
+      {/* Protocol Information Modal */}
+      {showAboutModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl p-6 font-mono space-y-4 shadow-2xl relative">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Info className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-bold text-slate-100">About Ammora Terminal</h3>
+              </div>
+              <button onClick={() => setShowAboutModal(false)} className="text-slate-500 hover:text-slate-200">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-300 leading-relaxed">
+              <p>
+                <strong className="text-emerald-400">Ammora Terminal</strong>, GIWA Sepolia Testnet üzerinde çalışan merkezsiz bir likidite başlatma platformudur.
+              </p>
+              
+              <div className="space-y-2 border-l-2 border-emerald-500/40 pl-3 my-2">
+                <div>
+                  <strong className="text-slate-100">1. Bonding Curve Algoritması:</strong>
+                  <p className="text-slate-400 text-[11px]">Her alım yapıldığında token fiyatı matematiksel formüle göre kademeli olarak artar, satım yapıldığında azalır.</p>
+                </div>
+                <div>
+                  <strong className="text-slate-100">2. Otomatik Likidite Göçü:</strong>
+                  <p className="text-slate-400 text-[11px]">Proje $24.5 ETH fonlamaya ulaştığında, toplanan ETH ve tokenlar Uniswap V3 havuzuna aktarılır ve LP tokenlar yakılır.</p>
+                </div>
+                <div>
+                  <strong className="text-slate-100">3. Tam On-Chain Güvenlik:</strong>
+                  <p className="text-slate-400 text-[11px]">Ön satış, whitelist veya ekip için ayrılan gizli paylar yoktur. Herkes eşit şartlarda başlar.</p>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowAboutModal(false)}
+              className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-2.5 rounded-xl text-xs transition"
+            >
+              Understood
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Connect Wallet Modal */}
       {showWalletModal && (
@@ -497,18 +697,19 @@ export default function AmmoraTerminalPage() {
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
                 <BarChart2 className="w-4 h-4 text-emerald-400" />
-                <h3 className="text-sm font-bold text-slate-100">ON-CHAIN SWAP</h3>
+                <h3 className="text-sm font-bold text-slate-100">ON-CHAIN SWAP TERMINAL</h3>
               </div>
               <button onClick={() => setSelectedLaunch(null)} className="text-slate-500 hover:text-slate-200">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
+            {/* Buy / Sell Tabs */}
             <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
               <button
                 onClick={() => setSwapMode("buy")}
                 className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition ${
-                  swapMode === "buy" ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-slate-200"
+                  swapMode === "buy" ? "bg-emerald-600 text-white shadow-md" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
                 Buy ${selectedLaunch.symbol}
@@ -516,40 +717,62 @@ export default function AmmoraTerminalPage() {
               <button
                 onClick={() => setSwapMode("sell")}
                 className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition ${
-                  swapMode === "sell" ? "bg-rose-600 text-white" : "text-slate-400 hover:text-slate-200"
+                  swapMode === "sell" ? "bg-rose-600 text-white shadow-md" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
                 Sell ${selectedLaunch.symbol}
               </button>
             </div>
 
+            {/* Selected Asset Info */}
             <div className="space-y-2 text-xs bg-slate-950 p-3 rounded-xl border border-slate-800/80">
               <div className="flex justify-between items-center">
                 <span className="text-slate-500">Asset:</span>
                 <span className="text-emerald-400 font-bold">${selectedLaunch.symbol || "TOKEN"}</span>
               </div>
-              <div className="text-[11px] text-slate-400 break-all">
-                {getField(selectedLaunch, ["tokenAddress", "token", "address"]) || "N/A"}
+              <div className="text-[11px] text-slate-400 break-all flex items-center justify-between">
+                <span>Address:</span>
+                <span>{activeTokenAddr ? `${activeTokenAddr.slice(0, 8)}...${activeTokenAddr.slice(-6)}` : "N/A"}</span>
               </div>
             </div>
 
-            <div className="space-y-1">
+            {/* Dynamic Balance Header & Amount Input */}
+            <div className="space-y-2">
               <div className="flex justify-between text-xs text-slate-400">
                 <label>Amount ({swapMode === "buy" ? "ETH" : selectedLaunch.symbol})</label>
-                <span>Balance: {balanceData ? `${parseFloat(formatEther(balanceData.value)).toFixed(3)} ETH` : "0.00"}</span>
+                <span className="font-bold text-slate-200">
+                  {swapMode === "buy"
+                    ? `ETH Bal: ${balanceData ? parseFloat(formatEther(balanceData.value)).toFixed(4) : "0.00"}`
+                    : `${selectedLaunch?.symbol} Bal: ${parseFloat(formattedTokenBalance).toFixed(2)}`
+                  }
+                </span>
               </div>
+
               <input
                 type="text"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                placeholder="0.001"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-emerald-400 focus:outline-none focus:border-emerald-500 font-mono"
+                placeholder="0.0"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-emerald-400 focus:outline-none focus:border-emerald-500 font-mono text-lg font-bold"
               />
+
+              {/* Quick Select Percentages (25%, 50%, 75%, MAX) */}
+              <div className="grid grid-cols-4 gap-1.5 pt-1">
+                {[25, 50, 75, 100].map((pct) => (
+                  <button
+                    key={pct}
+                    onClick={() => handleSetPercentage(pct)}
+                    className="bg-slate-950 hover:bg-slate-800 border border-slate-800 text-[11px] py-1 rounded-lg text-slate-400 hover:text-emerald-400 transition font-bold"
+                  >
+                    {pct === 100 ? "MAX" : `${pct}%`}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Testnet ETH Hatırlatması */}
-            <div className="flex items-center justify-between text-[11px] bg-slate-950/60 p-2 rounded-lg border border-slate-800">
-              <span className="text-slate-400">Need test tokens for gas?</span>
+            {/* Testnet ETH Faucet Reminder */}
+            <div className="flex items-center justify-between text-[11px] bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+              <span className="text-slate-400">Need test gas tokens?</span>
               <a
                 href="https://faucet.giwa.io/"
                 target="_blank"
@@ -560,6 +783,7 @@ export default function AmmoraTerminalPage() {
               </a>
             </div>
 
+            {/* Transaction Logs & Status Banner */}
             {(isPending || isConfirming || isSuccess || txError || txHash) && (
               <div className="p-3 rounded-xl text-xs space-y-2 border bg-slate-950 border-slate-800">
                 {isPending && (
@@ -571,7 +795,7 @@ export default function AmmoraTerminalPage() {
                 {isConfirming && (
                   <div className="flex items-center gap-2 text-teal-400">
                     <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                    <span>Waiting for GIWA Sepolia block confirmation...</span>
+                    <span>Executing on GIWA Sepolia block...</span>
                   </div>
                 )}
                 {isSuccess && (
@@ -600,13 +824,16 @@ export default function AmmoraTerminalPage() {
               </div>
             )}
 
+            {/* Main Action Button */}
             <button
               onClick={handleExecuteSwap}
               disabled={isPending || isConfirming}
-              className={`w-full font-bold py-3 rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-lg ${
+              className={`w-full font-bold py-3.5 rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-lg ${
                 isWrongNetwork 
                   ? "bg-rose-600 hover:bg-rose-500 text-white" 
-                  : "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white shadow-emerald-950/50"
+                  : swapMode === "buy"
+                  ? "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white shadow-emerald-950/50"
+                  : "bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 text-white shadow-rose-950/50"
               }`}
             >
               {isPending || isConfirming ? (
@@ -617,7 +844,7 @@ export default function AmmoraTerminalPage() {
               ) : isWrongNetwork ? (
                 "Switch to GIWA Sepolia Network"
               ) : (
-                `Submit ${swapMode.toUpperCase()} to Smart Contract`
+                `Submit ${swapMode.toUpperCase()} Order`
               )}
             </button>
           </div>
