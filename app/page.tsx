@@ -178,11 +178,11 @@ export default function AmmoraTerminalPage() {
       const balanceInWei = BigInt(hexBalance);
       const formatted = formatEther(balanceInWei);
       setDirectEthBalance(parseFloat(formatted).toFixed(4));
-    } catch (err) {
+   } catch (err) {
       if (balanceData) {
         setDirectEthBalance(parseFloat(formatEther(balanceData.value)).toFixed(4));
       }
-    } fontally {
+    } finally {
       setIsFetchingEth(false);
     }
   }, [address, balanceData]);
