@@ -14,7 +14,7 @@ export const giwaSepolia = {
     default: { http: ["https://sepolia-rpc.giwa.zone"] },
   },
   blockExplorers: {
-    default: { name: "GIWA Explorer", url: "https://sepolia.etherscan.io" },
+    default: { name: "GIWA Explorer", url: "https://sepolia-explorer.giwa.io" },
   },
 } as const;
 
