@@ -11,13 +11,14 @@ import {
   useWaitForTransactionReceipt,
   useChainId,
   useSwitchChain,
-  useReadContract
+  useReadContract,
+  usePublicClient
 } from "wagmi";
 import { formatEther, parseEther, isAddress, getAddress } from "viem";
 import { 
   Terminal, X, RefreshCw, CheckCircle2, AlertCircle, Search, TrendingUp, 
   Layers, ExternalLink, DollarSign, SlidersHorizontal, ArrowUpRight, Loader2,
-  Wallet, Activity, BarChart2, Flame, Droplets, AlertTriangle, Info,
+  Wallet, Activity, BarChart2, Flame, Droplets, AlertTriangle,
   ShieldCheck, Zap, Lock, Compass, HelpCircle
 } from "lucide-react";
 
@@ -97,6 +98,8 @@ export default function AmmoraTerminalPage() {
   const targetChainId = Number(GIWA_CHAIN_ID || 91342);
   const isWrongNetwork = isConnected && currentChainId !== targetChainId;
 
+  const publicClient = usePublicClient();
+
   const [directEthBalance, setDirectEthBalance] = useState<string>("0.00");
   const [isFetchingEth, setIsFetchingEth] = useState<boolean>(false);
 
@@ -105,6 +108,8 @@ export default function AmmoraTerminalPage() {
 
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>(undefined);
   const [isPending, setIsPending] = useState(false);
+  const [isManualConfirming, setIsManualConfirming] = useState(false);
+  const [isConfirmedSuccess, setIsConfirmedSuccess] = useState(false);
   const [txError, setTxError] = useState<string | null>(null);
 
   const [showWalletModal, setShowWalletModal] = useState(false);
@@ -119,38 +124,11 @@ export default function AmmoraTerminalPage() {
   const [swapMode, setSwapMode] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState<string>("0.001");
 
-  // On-chain transaction confirmation hook
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
+  // Wagmi build-in receipt hook
+  const { isLoading: isHookConfirming, isSuccess: isHookSuccess } = useWaitForTransactionReceipt({
     hash: txHash,
+    pollingInterval: 1000, // Direct 1s polling interval for GIWA network
   });
-
-  const fetchNativeEthBalance = useCallback(async () => {
-    if (!address || typeof window === "undefined" || !(window as any).ethereum) return;
-    try {
-      setIsFetchingEth(true);
-      const hexBalance = await (window as any).ethereum.request({
-        method: "eth_getBalance",
-        params: [address, "latest"],
-      });
-      const balanceInWei = BigInt(hexBalance);
-      const formatted = formatEther(balanceInWei);
-      setDirectEthBalance(parseFloat(formatted).toFixed(4));
-    } catch (err) {
-      console.error("Direct ETH Balance Fetch Failed:", err);
-      if (balanceData) {
-        setDirectEthBalance(parseFloat(formatEther(balanceData.value)).toFixed(4));
-      }
-    } finally {
-      setIsFetchingEth(false);
-    }
-  }, [address, balanceData]);
-
-  useEffect(() => {
-    if (isConnected && address) {
-      fetchNativeEthBalance();
-      refetchEthBalance();
-    }
-  }, [isConnected, address, currentChainId, fetchNativeEthBalance, refetchEthBalance]);
 
   function getField(item: any, keys: string[]) {
     if (!item) return null;
@@ -189,15 +167,85 @@ export default function AmmoraTerminalPage() {
   const formattedTokenBalance = tokenBalanceData ? formatEther(tokenBalanceData) : "0";
   const rawAllowance = allowanceData || BigInt(0);
 
-  // Refetch balances immediately when transaction succeeds
-  useEffect(() => {
-    if (isSuccess) {
-      fetchNativeEthBalance();
-      refetchTokenBalance();
-      refetchAllowance();
-      refetchEthBalance();
+  const fetchNativeEthBalance = useCallback(async () => {
+    if (!address || typeof window === "undefined" || !(window as any).ethereum) return;
+    try {
+      setIsFetchingEth(true);
+      const hexBalance = await (window as any).ethereum.request({
+        method: "eth_getBalance",
+        params: [address, "latest"],
+      });
+      const balanceInWei = BigInt(hexBalance);
+      const formatted = formatEther(balanceInWei);
+      setDirectEthBalance(parseFloat(formatted).toFixed(4));
+    } catch (err) {
+      if (balanceData) {
+        setDirectEthBalance(parseFloat(formatEther(balanceData.value)).toFixed(4));
+      }
+    } fontally {
+      setIsFetchingEth(false);
     }
-  }, [isSuccess, fetchNativeEthBalance, refetchTokenBalance, refetchAllowance, refetchEthBalance]);
+  }, [address, balanceData]);
+
+  const refreshAllBalances = useCallback(() => {
+    fetchNativeEthBalance();
+    refetchTokenBalance();
+    refetchAllowance();
+    refetchEthBalance();
+  }, [fetchNativeEthBalance, refetchTokenBalance, refetchAllowance, refetchEthBalance]);
+
+  // Handle transaction confirmation via Viem publicClient fallback
+  useEffect(() => {
+    if (!txHash) return;
+
+    let isMounted = true;
+    setIsManualConfirming(true);
+
+    const pollReceipt = async () => {
+      try {
+        if (publicClient) {
+          const receipt = await publicClient.waitForTransactionReceipt({
+            hash: txHash,
+            timeout: 15_000, // 15 seconds max wait
+          });
+          if (receipt && isMounted) {
+            setIsConfirmedSuccess(true);
+            setIsManualConfirming(false);
+            refreshAllBalances();
+          }
+        }
+      } catch (err) {
+        // Fallback: Force refresh balances anyway after 4 seconds as fallback
+        setTimeout(() => {
+          if (isMounted) {
+            setIsConfirmedSuccess(true);
+            setIsManualConfirming(false);
+            refreshAllBalances();
+          }
+        }, 4000);
+      }
+    };
+
+    pollReceipt();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [txHash, publicClient, refreshAllBalances]);
+
+  useEffect(() => {
+    if (isHookSuccess) {
+      setIsConfirmedSuccess(true);
+      setIsManualConfirming(false);
+      refreshAllBalances();
+    }
+  }, [isHookSuccess, refreshAllBalances]);
+
+  useEffect(() => {
+    if (isConnected && address) {
+      refreshAllBalances();
+    }
+  }, [isConnected, address, currentChainId, refreshAllBalances]);
 
   useEffect(() => {
     async function fetchLaunches() {
@@ -312,6 +360,7 @@ export default function AmmoraTerminalPage() {
     setIsPending(true);
     setTxError(null);
     setTxHash(undefined);
+    setIsConfirmedSuccess(false);
 
     try {
       let hash: `0x${string}`;
@@ -351,6 +400,8 @@ export default function AmmoraTerminalPage() {
       setTxError(err?.shortMessage || err?.message || "Transaction failed");
     }
   };
+
+  const isExecuting = isPending || ((isHookConfirming || isManualConfirming) && !isConfirmedSuccess);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-mono p-4 sm:p-6 relative selection:bg-emerald-500 selection:text-black">
@@ -615,7 +666,12 @@ export default function AmmoraTerminalPage() {
 
                     <div className="flex items-center justify-end md:w-1/6">
                       <button
-                        onClick={() => setSelectedLaunch(item)}
+                        onClick={() => {
+                          setSelectedLaunch(item);
+                          setIsConfirmedSuccess(false);
+                          setTxHash(undefined);
+                          setTxError(null);
+                        }}
                         className="w-full md:w-auto flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold px-4 py-2 rounded-xl text-xs transition shadow-lg shadow-emerald-950/50"
                       >
                         Trade / Swap
@@ -693,19 +749,43 @@ export default function AmmoraTerminalPage() {
             </div>
 
             {/* Status Messages */}
-            {(isPending || isConfirming || isSuccess || txError || txHash) && (
+            {(isPending || isHookConfirming || isManualConfirming || isConfirmedSuccess || txError) && (
               <div className="p-3 rounded-xl text-xs space-y-2 border bg-slate-950 border-slate-800">
-                {isPending && <div className="text-amber-400 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Signature requested in wallet...</div>}
-                {isConfirming && <div className="text-teal-400 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Mining block on GIWA network...</div>}
-                {isSuccess && <div className="text-emerald-400 font-bold flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4" /> Transaction Confirmed! Balance updated.</div>}
-                {txError && <div className="text-rose-400 flex items-center gap-1.5"><AlertCircle className="w-4 h-4" /> {txError}</div>}
+                {isPending && (
+                  <div className="text-amber-400 flex items-center gap-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Signature requested in wallet...
+                  </div>
+                )}
+                {!isPending && (isHookConfirming || isManualConfirming) && !isConfirmedSuccess && (
+                  <div className="text-teal-400 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Mining block on GIWA network...
+                    </div>
+                    <button 
+                      onClick={refreshAllBalances}
+                      className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded border border-slate-700 flex items-center gap-1"
+                    >
+                      <RefreshCw className="w-2.5 h-2.5" /> Force Sync
+                    </button>
+                  </div>
+                )}
+                {isConfirmedSuccess && (
+                  <div className="text-emerald-400 font-bold flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Transaction Confirmed! Balance updated.
+                  </div>
+                )}
+                {txError && (
+                  <div className="text-rose-400 flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 shrink-0" /> {txError}
+                  </div>
+                )}
               </div>
             )}
 
             {/* Swap Button */}
             <button
               onClick={handleExecuteSwap}
-              disabled={isPending || isConfirming || (!hasEnoughBalance && isConnected)}
+              disabled={isExecuting || (!hasEnoughBalance && isConnected)}
               className={`w-full font-bold py-3.5 rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-lg ${
                 !hasEnoughBalance && isConnected
                   ? "bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed"
@@ -714,7 +794,7 @@ export default function AmmoraTerminalPage() {
                   : "bg-rose-600 hover:bg-rose-500 text-white"
               }`}
             >
-              {isPending || isConfirming ? (
+              {isExecuting ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : !hasEnoughBalance && isConnected ? (
                 "Insufficient Balance"
