@@ -1,36 +1,72 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Ammora Terminal 🚀
 
-## Getting Started
+**Ammora Terminal** is an on-chain **Bonding Curve** DApp / DEX terminal built on the GIWA Sepolia Testnet, enabling projects to raise initial liquidity in a fair and rug-proof manner.
 
-First, run the development server:
+---
+
+## 🌟 Key Features
+
+* **Fair Launch Mechanism:** Token distribution via algorithmic Bonding Curves without requiring initial seed liquidity.
+* **Smart Contract Integration:** Direct interaction with `buyToken` and `sellToken` functions on GIWA Sepolia.
+* **Real-time On-Chain State:** Live tracking of ERC20 `balanceOf` and `allowance` via Wagmi / Viem hooks.
+* **Instant Filtering & Search:** Search launches by symbol, name, or contract address with real-time sorting.
+* **Web3 Wallet Support:** Seamless connection to Web3 wallets and automated network switching.
+
+---
+
+## 🛠️ Tech Stack
+
+* **Framework:** [Next.js 14/15](https://nextjs.org/) (App Router)
+* **Styling:** [Tailwind CSS](https://tailwindcss.com/)
+* **Web3 Integration:** [Wagmi](https://wagmi.sh/) & [Viem](https://viem.sh/)
+* **Icons:** [Lucide React](https://lucide.dev/)
+* **Network:** GIWA Sepolia Testnet (Chain ID: `91342`)
+
+---
+
+## 🚀 Getting Started
+
+Follow the steps below to run the application locally:
+
+### 1. Install Dependencies
 
 ```bash
-npm run dev
+npm install
 # or
-yarn dev
+yarn install
 # or
-pnpm dev
-# or
-bun dev
-```
+pnpm install
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Run Development Server
+const DEFAULT_LAUNCHES = [
+  {
+    symbol: "tAMM",
+    name: "Ammora Test Token",
+    tokenAddress: "0x...", // ERC20 Token Address
+    launchCurveAddress: "0x...", // Bonding Curve Contract Address
+  },
+];
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Open http://localhost:3000 in your browser to view the application.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+⚙️ Configuration & Contract Addresses
+To configure contract addresses or add default tokens, modify the DEFAULT_LAUNCHES array in app/page.tsx:
 
-## Learn More
+TypeScript
+const DEFAULT_LAUNCHES = [
+  {
+    symbol: "tAMM",
+    name: "Ammora Test Token",
+    tokenAddress: "0x...", // ERC20 Token Address
+    launchCurveAddress: "0x...", // Bonding Curve Contract Address
+  },
+];
+🌐 Network Information (GIWA Sepolia)
+Network Name: GIWA Sepolia
 
-To learn more about Next.js, take a look at the following resources:
+Chain ID: 91342
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Faucet: https://faucet.giwa.io/
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+📄 License
+This project is licensed under the MIT License.
