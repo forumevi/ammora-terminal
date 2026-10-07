@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { dataApiClient, GIWA_CHAIN_ID } from "@/lib/ammora";
 import { 
   useAccount, 
-  useConnect, 
   useDisconnect, 
   useBalance, 
   useWriteContract, 
@@ -14,20 +13,16 @@ import {
 } from "wagmi";
 import { formatEther, parseEther, isAddress, getAddress } from "viem";
 import { 
-  Terminal, X, RefreshCw, CheckCircle2, AlertCircle, Search, TrendingUp, 
-  Layers, ExternalLink, DollarSign, SlidersHorizontal, ArrowUpRight, Loader2,
-  Wallet, Activity, Flame, Droplets, AlertTriangle, Info,
-  ShieldCheck, Lock, Compass, HelpCircle
+  Terminal, X, RefreshCw, CheckCircle2, AlertCircle,
+  ExternalLink, Loader2, Wallet, AlertTriangle, Droplets, HelpCircle
 } from "lucide-react";
 
-// TypeScript Global Window Type Override Fix
 declare global {
   interface Window {
     ethereum?: any;
   }
 }
 
-// GIWA / Ammora ABIs
 const BONDING_CURVE_ABI = [
   {
     inputs: [{ internalType: "address", name: "token", type: "address" }],
@@ -68,7 +63,7 @@ const ERC20_ABI = [
   },
   {
     inputs: [
-      { internalType: "address", name: "spender", type: "amount" },
+      { internalType: "address", name: "spender", type: "address" },
       { internalType: "uint256", name: "amount", type: "uint256" },
     ],
     name: "approve",
@@ -78,28 +73,20 @@ const ERC20_ABI = [
   },
 ] as const;
 
-// Ammora Sepolia Real Contracts
-const REAL_AMMORA_ROUTER = "0x1f92a6a9bb4bbed2b385dd5e688f88e7965bcf80";
-const REAL_TAMM_TOKEN = "0x82dd8d0529471f6a6016fdfe990aa000000000000";
+const AMMORA_ROUTER_CONTRACT = "0x1f92a6a9bb4bbed2b385dd5e688f88e7965bcf80";
+const TAMM_TOKEN_CONTRACT = "0x82dd8d0529471f6a6016fdfe990aa000000000000";
 
 const FALLBACK_LAUNCHES = [
   {
     symbol: "tAMM",
     name: "tAmm Coin",
-    tokenAddress: REAL_TAMM_TOKEN,
-    launchCurveAddress: REAL_AMMORA_ROUTER,
-  },
-  {
-    symbol: "GIWA",
-    name: "Giwa Protocol Token",
-    tokenAddress: "0x1f92a6a9bb4bbed2b385dd5e688f88e7965bcf80",
-    launchCurveAddress: "0x1f92a6a9bb4bbed2b385dd5e688f88e7965bcf80",
+    tokenAddress: TAMM_TOKEN_CONTRACT,
+    launchCurveAddress: AMMORA_ROUTER_CONTRACT,
   },
 ];
 
 export default function AmmoraTerminalPage() {
   const { address, isConnected } = useAccount();
-  const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
   
   const currentChainId = useChainId();
@@ -107,18 +94,12 @@ export default function AmmoraTerminalPage() {
   const targetChainId = Number(GIWA_CHAIN_ID) || 91342;
   const isWrongNetwork = isConnected && currentChainId !== targetChainId;
 
-  // Custom Direct RPC ETH Balance State
   const [directEthBalance, setDirectEthBalance] = useState<string>("0.00");
   const [isFetchingEth, setIsFetchingEth] = useState<boolean>(false);
 
-  // Wagmi Balance Fallback
-  const { data: balanceData, refetch: refetchEthBalance } = useBalance({ 
-    address,
-  });
-
+  const { data: balanceData, refetch: refetchEthBalance } = useBalance({ address });
   const { writeContractAsync } = useWriteContract();
 
-  // On-Chain State Management
   const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
   const [isPending, setIsPending] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
@@ -126,18 +107,12 @@ export default function AmmoraTerminalPage() {
   const [txError, setTxError] = useState<string | null>(null);
 
   const [showWalletModal, setShowWalletModal] = useState(false);
-  const [showAboutModal, setShowAboutModal] = useState(false);
   const [launches, setLaunches] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedLaunch, setSelectedLaunch] = useState<any | null>(null);
-
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState<"newest" | "progress">("newest");
+  const [selectedLaunch, setSelectedLaunch] = useState<any | null>(FALLBACK_LAUNCHES[0]);
 
   const [swapMode, setSwapMode] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState<string>("0.001");
 
-  // Type-Safe Window Ethereum Balance Fetching
   const fetchNativeEthBalance = useCallback(async () => {
     if (!address || typeof window === "undefined" || !(window as any).ethereum) return;
     try {
@@ -147,10 +122,9 @@ export default function AmmoraTerminalPage() {
         params: [address, "latest"],
       });
       const balanceInWei = BigInt(hexBalance);
-      const formatted = formatEther(balanceInWei);
-      setDirectEthBalance(parseFloat(formatted).toFixed(4));
+      setDirectEthBalance(parseFloat(formatEther(balanceInWei)).toFixed(4));
     } catch (err) {
-      console.error("Direct ETH Balance Fetch Failed:", err);
+      console.error("Balance fetch error:", err);
       if (balanceData) {
         setDirectEthBalance(parseFloat(formatEther(balanceData.value)).toFixed(4));
       }
@@ -178,13 +152,12 @@ export default function AmmoraTerminalPage() {
 
   const activeTokenAddr = selectedLaunch 
     ? (getField(selectedLaunch, ["tokenAddress", "token", "address"]) as `0x${string}`)
-    : undefined;
+    : TAMM_TOKEN_CONTRACT as `0x${string}`;
 
   const activeCurveAddr = selectedLaunch 
-    ? ((getField(selectedLaunch, ["launchCurveAddress", "curveAddress", "launchCurve"]) || activeTokenAddr) as `0x${string}`)
-    : undefined;
+    ? ((getField(selectedLaunch, ["launchCurveAddress", "curveAddress", "launchCurve"]) || AMMORA_ROUTER_CONTRACT) as `0x${string}`)
+    : AMMORA_ROUTER_CONTRACT as `0x${string}`;
 
-  // On-Chain Token Balance Reading
   const { data: tokenBalanceData, refetch: refetchTokenBalance } = useReadContract({
     address: activeTokenAddr && isAddress(activeTokenAddr) ? activeTokenAddr : undefined,
     abi: ERC20_ABI,
@@ -193,7 +166,6 @@ export default function AmmoraTerminalPage() {
     query: { enabled: !!address && !!activeTokenAddr && isAddress(activeTokenAddr) },
   });
 
-  // On-Chain Token Allowance Check
   const { data: allowanceData, refetch: refetchAllowance } = useReadContract({
     address: activeTokenAddr && isAddress(activeTokenAddr) ? activeTokenAddr : undefined,
     abi: ERC20_ABI,
@@ -202,10 +174,7 @@ export default function AmmoraTerminalPage() {
     query: { enabled: !!address && !!activeTokenAddr && !!activeCurveAddr && isAddress(activeTokenAddr) },
   });
 
-  const formattedTokenBalance = tokenBalanceData 
-    ? formatEther(tokenBalanceData)
-    : "0";
-
+  const formattedTokenBalance = tokenBalanceData ? formatEther(tokenBalanceData) : "0";
   const rawAllowance = allowanceData || BigInt(0);
 
   useEffect(() => {
@@ -224,56 +193,11 @@ export default function AmmoraTerminalPage() {
       } catch (err) {
         console.error("Data API Fetch Error:", err);
         setLaunches(FALLBACK_LAUNCHES);
-      } finally {
-        setLoading(false);
       }
     }
 
     fetchLaunches();
   }, [targetChainId]);
-
-  const getTokenMetrics = (addr: string) => {
-    if (!addr) return { progress: 65, marketCap: "$42.4K", holders: 238, priceChange: "+24.2%" };
-    const sum = addr.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    return {
-      progress: Math.min((sum % 70) + 30, 100),
-      marketCap: `$${((sum % 500) / 10 + 12.2).toFixed(1)}K`,
-      holders: (sum % 340) + 142,
-      priceChange: `+${((sum % 45) + 5.1).toFixed(1)}%`,
-    };
-  };
-
-  const filteredLaunches = useMemo(() => {
-    return launches
-      .filter((item) => {
-        const symbol = (item.symbol || "").toLowerCase();
-        const name = (item.name || "").toLowerCase();
-        const tokenAddr = (getField(item, ["tokenAddress", "token", "address", "id"]) || "").toLowerCase();
-        const query = searchQuery.toLowerCase();
-        return symbol.includes(query) || name.includes(query) || tokenAddr.includes(query);
-      })
-      .sort((a, b) => {
-        if (sortBy === "progress") {
-          const addrA = getField(a, ["tokenAddress", "token", "address", "id"]) || "";
-          const addrB = getField(b, ["tokenAddress", "token", "address", "id"]) || "";
-          return getTokenMetrics(addrB).progress - getTokenMetrics(addrA).progress;
-        }
-        return 0;
-      });
-  }, [launches, searchQuery, sortBy]);
-
-  const handleSetPercentage = (percentage: number) => {
-    if (swapMode === "buy") {
-      const ethVal = parseFloat(directEthBalance) || 0;
-      const usableEth = Math.max(0, ethVal - 0.0005);
-      const calculated = (usableEth * (percentage / 100)).toFixed(4);
-      setAmount(calculated);
-    } else {
-      const tokenVal = parseFloat(formattedTokenBalance) || 0;
-      const calculated = (tokenVal * (percentage / 100)).toFixed(2);
-      setAmount(calculated);
-    }
-  };
 
   const activeEthVal = parseFloat(directEthBalance) || 0;
   const activeTokenVal = parseFloat(formattedTokenBalance) || 0;
@@ -283,7 +207,6 @@ export default function AmmoraTerminalPage() {
     ? (activeEthVal >= inputAmount && inputAmount > 0)
     : (activeTokenVal >= inputAmount && inputAmount > 0);
 
-  // On-Chain Transaction Execution
   const handleExecuteSwap = async () => {
     if (!isConnected) return setShowWalletModal(true);
     if (isWrongNetwork) return switchChain && switchChain({ chainId: targetChainId });
@@ -293,12 +216,12 @@ export default function AmmoraTerminalPage() {
       return;
     }
 
-    let tokenAddress = getField(selectedLaunch, ["tokenAddress", "token", "address"]) || REAL_TAMM_TOKEN;
-    let curveAddress = getField(selectedLaunch, ["launchCurveAddress", "curveAddress", "launchCurve"]) || REAL_AMMORA_ROUTER;
+    let tokenAddress = getField(selectedLaunch, ["tokenAddress", "token", "address"]) || TAMM_TOKEN_CONTRACT;
+    let curveAddress = getField(selectedLaunch, ["launchCurveAddress", "curveAddress", "launchCurve"]) || AMMORA_ROUTER_CONTRACT;
 
     try {
-      tokenAddress = isAddress(tokenAddress) ? getAddress(tokenAddress) : getAddress(REAL_TAMM_TOKEN);
-      curveAddress = isAddress(curveAddress) ? getAddress(curveAddress) : getAddress(REAL_AMMORA_ROUTER);
+      tokenAddress = isAddress(tokenAddress) ? getAddress(tokenAddress) : getAddress(TAMM_TOKEN_CONTRACT);
+      curveAddress = isAddress(curveAddress) ? getAddress(curveAddress) : getAddress(AMMORA_ROUTER_CONTRACT);
     } catch {
       console.error("Invalid checksum address format");
       return;
@@ -326,13 +249,12 @@ export default function AmmoraTerminalPage() {
       } else {
         if (rawAllowance < parsedAmount) {
           setIsConfirming(true);
-          const approveHash = await writeContractAsync({
+          await writeContractAsync({
             address: tokenAddress as `0x${string}`,
             abi: ERC20_ABI,
             functionName: "approve",
             args: [curveAddress as `0x${string}`, parsedAmount],
           });
-          setTxHash(approveHash);
           await refetchAllowance();
         }
 
@@ -357,101 +279,120 @@ export default function AmmoraTerminalPage() {
       }, 3000);
 
     } catch (err: any) {
-      console.error("On-chain Tx Error:", err);
+      console.error("Tx Error:", err);
       setIsPending(false);
       setIsConfirming(false);
-      setTxError(err?.shortMessage || err?.message || "Transaction execution failed");
+      setTxError(err?.shortMessage || err?.message || "İşlem başarısız oldu");
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-mono p-4 sm:p-6 relative selection:bg-emerald-500 selection:text-black">
-      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-950/20 via-slate-950 to-slate-950 pointer-events-none -z-10" />
-
-      {/* Header Bar */}
-      <header className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-slate-800/80 pb-4 mb-6 gap-4">
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-mono p-4 sm:p-6 relative">
+      <header className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-slate-800 pb-4 mb-6 gap-4">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-gradient-to-br from-emerald-500/20 to-teal-500/10 border border-emerald-500/40 rounded-xl shadow-lg shadow-emerald-950/50">
-            <Terminal className="w-6 h-6 text-emerald-400" />
-          </div>
+          <Terminal className="w-6 h-6 text-emerald-400" />
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold tracking-wider text-slate-50">AMMORA TERMINAL</h1>
-              <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800/80 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
-                GIWA SEPOLIA (91342)
-              </span>
-            </div>
-            <p className="text-xs text-slate-400">Decentralized Bonding Curve Liquidity Protocol</p>
+            <h1 className="text-xl font-bold text-slate-50">AMMORA TERMINAL</h1>
+            <p className="text-xs text-slate-400">GIWA Sepolia Network (ID: {targetChainId})</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 w-full md:w-auto justify-between md:justify-end flex-wrap">
-          <button
-            onClick={() => setShowAboutModal(true)}
-            className="flex items-center gap-1.5 text-xs bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 px-3 py-1.5 rounded-lg transition"
-          >
-            <HelpCircle className="w-3.5 h-3.5 text-emerald-400" />
-            <span>About Ammora</span>
-          </button>
-
-          <a
-            href="https://faucet.giwa.io/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-xs bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-800/80 text-emerald-400 px-3 py-1.5 rounded-lg font-bold transition"
-          >
-            <Droplets className="w-3.5 h-3.5" />
-            <span>GIWA Faucet</span>
-            <ExternalLink className="w-3 h-3" />
-          </a>
-
-          <div className={`hidden sm:flex items-center gap-2 text-xs border px-3 py-1.5 rounded-lg ${
-            isWrongNetwork 
-              ? "bg-rose-950/40 border-rose-800/80 text-rose-300 animate-pulse" 
-              : "bg-slate-900 border-slate-800 text-slate-300"
-          }`}>
-            <span className={`w-2 h-2 rounded-full ${isWrongNetwork ? "bg-rose-500" : "bg-emerald-400 animate-ping"}`}></span>
-            <span>{isWrongNetwork ? "Wrong Network!" : `GIWA Sepolia (${targetChainId})`}</span>
-          </div>
-
+        <div className="flex items-center gap-2">
           {isConnected ? (
-            <div className="flex items-center gap-2">
-              <div className="bg-slate-900 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs flex items-center gap-2">
-                <Wallet className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-slate-200">{address?.slice(0, 6)}...{address?.slice(-4)}</span>
-                <span className="text-emerald-400 font-bold border-l border-slate-800 pl-2 flex items-center gap-1">
-                  {isFetchingEth ? <Loader2 className="w-3 h-3 animate-spin" /> : `${directEthBalance} ETH`}
-                </span>
-                <button onClick={fetchNativeEthBalance} title="Refresh Balance" className="text-slate-400 hover:text-emerald-400">
-                  <RefreshCw className="w-3 h-3" />
-                </button>
-              </div>
-              <button
-                onClick={() => disconnect()}
-                className="bg-slate-900 hover:bg-rose-950/50 border border-slate-800 text-slate-400 hover:text-rose-400 p-2 rounded-lg text-xs transition"
-              >
-                <X className="w-4 h-4" />
+            <div className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg text-xs flex items-center gap-2">
+              <Wallet className="w-3.5 h-3.5 text-emerald-400" />
+              <span>{address?.slice(0, 6)}...{address?.slice(-4)}</span>
+              <span className="text-emerald-400 font-bold border-l border-slate-800 pl-2">
+                {isFetchingEth ? <Loader2 className="w-3 h-3 animate-spin" /> : `${directEthBalance} ETH`}
+              </span>
+              <button onClick={fetchNativeEthBalance} className="text-slate-400 hover:text-emerald-400">
+                <RefreshCw className="w-3 h-3" />
               </button>
             </div>
           ) : (
             <button
               onClick={() => setShowWalletModal(true)}
-              className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 active:scale-95 text-white font-bold px-4 py-2 rounded-lg text-xs transition shadow-lg shadow-emerald-950/60"
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-lg text-xs"
             >
-              <Wallet className="w-4 h-4" />
-              <span>Connect Wallet</span>
+              Cüzdan Bağla
             </button>
           )}
         </div>
       </header>
 
-      {/* Network Warning Banner */}
       {isWrongNetwork && (
-        <div className="max-w-7xl mx-auto mb-6 p-4 bg-rose-950/40 border border-rose-800 rounded-xl flex items-center justify-between gap-4 animate-bounce">
+        <div className="max-w-xl mx-auto mb-6 p-4 bg-rose-950/40 border border-rose-800 rounded-xl flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 text-rose-300 text-xs">
             <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
-            <span><strong>Uyarı:</strong> Cüzdanın GIWA Sepolia (91342) ağında değil. Lütfen ağı değiştirin.</span>
+            <span>Yanlış Ağ! GIWA Sepolia (91342) ağına geçin.</span>
           </div>
           <button
             onClick={() => switchChain && switchChain({ chainId: targetChainId })}
             className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-4 py-2 rounded-lg text-xs shrink-0 transition"
+          >
+            Ağı Değiştir
+          </button>
+        </div>
+      )}
+
+      <main className="max-w-xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
+        <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
+          <div className="flex gap-2">
+            <button
+              onClick={() => setSwapMode("buy")}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${
+                swapMode === "buy" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40" : "text-slate-400"
+              }`}
+            >
+              AL (ETH → Token)
+            </button>
+            <button
+              onClick={() => setSwapMode("sell")}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${
+                swapMode === "sell" ? "bg-rose-500/20 text-rose-400 border border-rose-500/40" : "text-slate-400"
+              }`}
+            >
+              SAT (Token → ETH)
+            </button>
+          </div>
+          <span className="text-xs text-slate-400">GIWA Sepolia</span>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-slate-400 block mb-1">Miktar ({swapMode === "buy" ? "ETH" : "tAMM"})</label>
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono text-sm focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+
+          {txError && (
+            <div className="p-3 bg-rose-950/40 border border-rose-800 rounded-lg text-xs text-rose-300 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{txError}</span>
+            </div>
+          )}
+
+          {isSuccess && (
+            <div className="p-3 bg-emerald-950/40 border border-emerald-800 rounded-lg text-xs text-emerald-300 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>İşlem Başarılı! Hash: {txHash?.slice(0, 10)}...</span>
+            </div>
+          )}
+
+          <button
+            onClick={handleExecuteSwap}
+            disabled={isPending || isConfirming}
+            className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 font-bold rounded-lg text-sm text-white transition flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {(isPending || isConfirming) && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isPending ? "İmza Bekleniyor..." : isConfirming ? "İşlem Onaylanıyor..." : swapMode === "buy" ? "ETH ile tAMM Al" : "tAMM Sat"}
+          </button>
+        </div>
+      </main>
+    </div>
+  );
+}
