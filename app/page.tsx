@@ -40,7 +40,7 @@ const BONDING_CURVE_ABI = [
   },
 ] as const;
 
-// Standart Checksum Formatlı Adresler (Hata vermemesi için)
+// Standart Checksum Formatlı Adresler
 const FALLBACK_LAUNCHES = [
   {
     symbol: "GIWA",
@@ -68,10 +68,11 @@ export default function AmmoraTerminalPage() {
   const { disconnect } = useDisconnect();
   const { data: balanceData } = useBalance({ address });
   
-  // Chain ID & Network Switching
+  // Chain ID & Network Switching (bigint / number uyumu sağlandı)
   const currentChainId = useChainId();
   const { switchChain } = useSwitchChain();
-  const isWrongNetwork = isConnected && currentChainId !== GIWA_CHAIN_ID;
+  const targetChainId = Number(GIWA_CHAIN_ID);
+  const isWrongNetwork = isConnected && currentChainId !== targetChainId;
 
   // Wagmi On-Chain Write Hook
   const { data: hash, isPending: isWritePending, error: writeError, writeContract } = useWriteContract();
@@ -91,7 +92,7 @@ export default function AmmoraTerminalPage() {
   useEffect(() => {
     async function fetchLaunches() {
       try {
-        const response = (await dataApiClient.getLaunches({ chainId: GIWA_CHAIN_ID })) as any;
+        const response = (await dataApiClient.getLaunches({ chainId: targetChainId })) as any;
         const launchArray = Array.isArray(response)
           ? response
           : response?.launches || response?.data || response?.items || [];
@@ -110,7 +111,7 @@ export default function AmmoraTerminalPage() {
     }
 
     fetchLaunches();
-  }, []);
+  }, [targetChainId]);
 
   const getField = (item: any, keys: string[]) => {
     for (const key of keys) {
@@ -158,7 +159,7 @@ export default function AmmoraTerminalPage() {
     }
 
     if (isWrongNetwork) {
-      if (switchChain) switchChain({ chainId: GIWA_CHAIN_ID });
+      if (switchChain) switchChain({ chainId: targetChainId });
       return;
     }
 
@@ -239,7 +240,7 @@ export default function AmmoraTerminalPage() {
               : "bg-slate-900 border-slate-800 text-slate-300"
           }`}>
             <span className={`w-2 h-2 rounded-full ${isWrongNetwork ? "bg-rose-500 animate-ping" : "bg-emerald-400 animate-ping"}`}></span>
-            <span>{isWrongNetwork ? "Wrong Network" : "GIWA Sepolia (91342)"}</span>
+            <span>{isWrongNetwork ? "Wrong Network" : `GIWA Sepolia (${targetChainId})`}</span>
           </div>
 
           {/* Cüzdan Durumu */}
@@ -278,10 +279,10 @@ export default function AmmoraTerminalPage() {
         <div className="max-w-7xl mx-auto mb-6 p-4 bg-rose-950/30 border border-rose-800/80 rounded-xl flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 text-rose-300 text-xs">
             <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
-            <span>You are connected to an unsupported network. Please switch to GIWA Sepolia Testnet (Chain ID: 91342) to perform on-chain transactions.</span>
+            <span>You are connected to an unsupported network. Please switch to GIWA Sepolia Testnet (Chain ID: {targetChainId}) to perform on-chain transactions.</span>
           </div>
           <button
-            onClick={() => switchChain && switchChain({ chainId: GIWA_CHAIN_ID })}
+            onClick={() => switchChain && switchChain({ chainId: targetChainId })}
             className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-3 py-1.5 rounded-lg text-xs shrink-0 transition"
           >
             Switch Network
@@ -309,7 +310,7 @@ export default function AmmoraTerminalPage() {
             </div>
             <div className="text-xl font-bold text-emerald-400 flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              91342
+              {targetChainId}
             </div>
             <div className="text-[10px] text-slate-500 mt-1">GIWA Sepolia RPC</div>
           </div>
