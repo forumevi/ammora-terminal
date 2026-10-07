@@ -8,6 +8,7 @@ import {
   useDisconnect, 
   useBalance, 
   useWriteContract, 
+  useWaitForTransactionReceipt,
   useChainId,
   useSwitchChain,
   useReadContract
@@ -71,13 +72,12 @@ const ERC20_ABI = [
   },
 ] as const;
 
-// tAMM Token Varsayılan Listesi (Lütfen kendi gerçek kontrat adreslerinizi buraya girin)
 const DEFAULT_LAUNCHES = [
   {
     symbol: "tAMM",
     name: "Ammora Test Token",
-    tokenAddress: "0x0000000000000000000000000000000000000001", // Gerçek tAMM Token Kontrat Adresi
-    launchCurveAddress: "0x0000000000000000000000000000000000000001", // Gerçek Bonding Curve Kontrat Adresi
+    tokenAddress: "0x0000000000000000000000000000000000000001",
+    launchCurveAddress: "0x0000000000000000000000000000000000000001",
   },
   {
     symbol: "GIWA",
@@ -97,18 +97,14 @@ export default function AmmoraTerminalPage() {
   const targetChainId = Number(GIWA_CHAIN_ID || 91342);
   const isWrongNetwork = isConnected && currentChainId !== targetChainId;
 
-  // Cüzdan ETH Bakiye Durumu
   const [directEthBalance, setDirectEthBalance] = useState<string>("0.00");
   const [isFetchingEth, setIsFetchingEth] = useState<boolean>(false);
 
   const { data: balanceData, refetch: refetchEthBalance } = useBalance({ address });
   const { writeContractAsync } = useWriteContract();
 
-  // On-Chain İşlem Durumları
-  const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
+  const [txHash, setTxHash] = useState<`0x${string}` | undefined>(undefined);
   const [isPending, setIsPending] = useState(false);
-  const [isConfirming, setIsConfirming] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
   const [txError, setTxError] = useState<string | null>(null);
 
   const [showWalletModal, setShowWalletModal] = useState(false);
@@ -123,7 +119,11 @@ export default function AmmoraTerminalPage() {
   const [swapMode, setSwapMode] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState<string>("0.001");
 
-  // Doğrudan cüzdan provider'ından bakiyeyi çekme
+  // On-chain transaction confirmation hook
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
+    hash: txHash,
+  });
+
   const fetchNativeEthBalance = useCallback(async () => {
     if (!address || typeof window === "undefined" || !(window as any).ethereum) return;
     try {
@@ -170,7 +170,6 @@ export default function AmmoraTerminalPage() {
     ? ((getField(selectedLaunch, ["launchCurveAddress", "curveAddress", "launchCurve"]) || activeTokenAddr) as `0x${string}`)
     : undefined;
 
-  // On-Chain Token Bakiye Okuma
   const { data: tokenBalanceData, refetch: refetchTokenBalance } = useReadContract({
     address: activeTokenAddr && isAddress(activeTokenAddr) ? activeTokenAddr : undefined,
     abi: ERC20_ABI,
@@ -179,7 +178,6 @@ export default function AmmoraTerminalPage() {
     query: { enabled: !!address && !!activeTokenAddr && isAddress(activeTokenAddr) },
   });
 
-  // On-Chain Allowance Kontrolü
   const { data: allowanceData, refetch: refetchAllowance } = useReadContract({
     address: activeTokenAddr && isAddress(activeTokenAddr) ? activeTokenAddr : undefined,
     abi: ERC20_ABI,
@@ -190,6 +188,16 @@ export default function AmmoraTerminalPage() {
 
   const formattedTokenBalance = tokenBalanceData ? formatEther(tokenBalanceData) : "0";
   const rawAllowance = allowanceData || BigInt(0);
+
+  // Refetch balances immediately when transaction succeeds
+  useEffect(() => {
+    if (isSuccess) {
+      fetchNativeEthBalance();
+      refetchTokenBalance();
+      refetchAllowance();
+      refetchEthBalance();
+    }
+  }, [isSuccess, fetchNativeEthBalance, refetchTokenBalance, refetchAllowance, refetchEthBalance]);
 
   useEffect(() => {
     async function fetchLaunches() {
@@ -254,7 +262,6 @@ export default function AmmoraTerminalPage() {
     }
   };
 
-  // VİRGÜL-NOKTA DÜZELTMESİ (Arayüzde virgül yazılsa dahi noktaya çevirip parse eder)
   const normalizedAmount = amount.replace(",", ".");
   const activeEthVal = parseFloat(directEthBalance) || 0;
   const activeTokenVal = parseFloat(formattedTokenBalance) || 0;
@@ -264,7 +271,6 @@ export default function AmmoraTerminalPage() {
     ? (activeEthVal >= inputAmount && inputAmount > 0)
     : (activeTokenVal >= inputAmount && inputAmount > 0);
 
-  // İşlem Tetikleme
   const handleExecuteSwap = async () => {
     if (!isConnected) {
       setShowWalletModal(true);
@@ -277,7 +283,7 @@ export default function AmmoraTerminalPage() {
     }
 
     if (!hasEnoughBalance) {
-      setTxError("Yetersiz bakiye! İşlem miktarını kontrol edin.");
+      setTxError("Insufficient balance! Please check your transaction amount.");
       return;
     }
 
@@ -297,17 +303,15 @@ export default function AmmoraTerminalPage() {
     }
 
     if (!tokenAddress || !curveAddress) {
-      setTxError("Lütfen geçerli bir token ve bonding curve adresi tanımlayın.");
+      setTxError("Please define a valid token and bonding curve address.");
       return;
     }
 
     const parsedAmount = parseEther(normalizedAmount);
 
     setIsPending(true);
-    setIsConfirming(false);
-    setIsSuccess(false);
     setTxError(null);
-    setTxHash(null);
+    setTxHash(undefined);
 
     try {
       let hash: `0x${string}`;
@@ -322,7 +326,6 @@ export default function AmmoraTerminalPage() {
         });
       } else {
         if (rawAllowance < parsedAmount) {
-          setIsConfirming(true);
           await writeContractAsync({
             address: tokenAddress,
             abi: ERC20_ABI,
@@ -342,20 +345,10 @@ export default function AmmoraTerminalPage() {
 
       setTxHash(hash);
       setIsPending(false);
-      setIsConfirming(true);
-
-      setTimeout(() => {
-        setIsConfirming(false);
-        setIsSuccess(true);
-        fetchNativeEthBalance();
-        refetchTokenBalance();
-        refetchAllowance();
-      }, 3000);
 
     } catch (err: any) {
       setIsPending(false);
-      setIsConfirming(false);
-      setTxError(err?.shortMessage || err?.message || "İşlem başarısız oldu");
+      setTxError(err?.shortMessage || err?.message || "Transaction failed");
     }
   };
 
@@ -440,35 +433,35 @@ export default function AmmoraTerminalPage() {
         </div>
       </header>
 
-      {/* Yanlış Ağ Uyarısı Banner */}
+      {/* Network Warning Banner */}
       {isWrongNetwork && (
         <div className="max-w-7xl mx-auto mb-6 p-4 bg-rose-950/40 border border-rose-800 rounded-xl flex items-center justify-between gap-4 animate-bounce">
           <div className="flex items-center gap-3 text-rose-300 text-xs">
             <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
-            <span><strong>Uyarı:</strong> Cüzdanın GIWA Sepolia ağında değil. Lütfen ağı değiştirin.</span>
+            <span><strong>Warning:</strong> Wallet is not connected to GIWA Sepolia. Please switch networks.</span>
           </div>
           <button
             onClick={() => switchChain && switchChain({ chainId: targetChainId })}
             className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-4 py-2 rounded-lg text-xs shrink-0 transition"
           >
-            GIWA Ağına Geç ({targetChainId})
+            Switch to GIWA ({targetChainId})
           </button>
         </div>
       )}
 
-      {/* Hero Tanıtım Bölümü */}
+      {/* Hero Section */}
       <section className="max-w-7xl mx-auto mb-8 bg-slate-900/60 border border-slate-800/80 rounded-2xl p-6 relative overflow-hidden backdrop-blur-sm">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 relative z-10">
           <div className="space-y-2 max-w-2xl">
             <div className="inline-flex items-center gap-2 text-xs bg-emerald-950/80 border border-emerald-800/60 text-emerald-400 px-3 py-1 rounded-full font-bold">
               <Zap className="w-3.5 h-3.5" />
-              <span>Zero Liquidity Seed Required</span>
+              <span>Zero Seed Liquidity Required</span>
             </div>
             <h2 className="text-xl sm:text-2xl font-bold text-slate-100 tracking-tight">
               Fair Launch Tokens via Mathematical Bonding Curves
             </h2>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Ammora Terminal, GIWA Sepolia ağındaki projelerin rug-pull riski olmadan, tamamen zincir üstü matematiksel algoritmalarla (Bonding Curve) likidite toplamasını sağlar.
+              Ammora Terminal empowers projects on GIWA Sepolia to raise liquidity safely without rug-pull risks using algorithmic, on-chain Bonding Curves.
             </p>
           </div>
 
@@ -477,7 +470,7 @@ export default function AmmoraTerminalPage() {
               <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold mb-1">
                 <ShieldCheck className="w-4 h-4" /> 100% Secure
               </div>
-              <div className="text-[11px] text-slate-400">Rug-Proof Smart Contracts</div>
+              <div className="text-[11px] text-slate-400">Rug-Proof Contracts</div>
             </div>
             <div className="bg-slate-950/80 border border-slate-800 p-3 rounded-xl">
               <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold mb-1">
@@ -495,7 +488,7 @@ export default function AmmoraTerminalPage() {
         </div>
       </section>
 
-      {/* Ana Metrikler */}
+      {/* Key Metrics */}
       <main className="space-y-6 max-w-7xl mx-auto">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
           <div className="bg-slate-900/80 border border-slate-800/80 p-4 rounded-xl">
@@ -540,7 +533,7 @@ export default function AmmoraTerminalPage() {
           </div>
         </div>
 
-        {/* Token Listesi */}
+        {/* Token List */}
         <div className="bg-slate-900 border border-slate-800/90 rounded-2xl overflow-hidden shadow-2xl">
           <div className="p-4 border-b border-slate-800/90 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between bg-slate-900/50">
             <div className="relative flex-1">
@@ -658,7 +651,7 @@ export default function AmmoraTerminalPage() {
                   swapMode === "buy" ? "bg-emerald-600 text-white" : "text-slate-400"
                 }`}
               >
-                AL (ETH → {selectedLaunch.symbol})
+                BUY (ETH → {selectedLaunch.symbol})
               </button>
               <button
                 onClick={() => setSwapMode("sell")}
@@ -666,19 +659,18 @@ export default function AmmoraTerminalPage() {
                   swapMode === "sell" ? "bg-rose-600 text-white" : "text-slate-400"
                 }`}
               >
-                SAT ({selectedLaunch.symbol} → ETH)
+                SELL ({selectedLaunch.symbol} → ETH)
               </button>
             </div>
 
             <div className="space-y-2">
               <div className="flex justify-between text-xs text-slate-400">
-                <label>Miktar ({swapMode === "buy" ? "ETH" : selectedLaunch.symbol})</label>
+                <label>Amount ({swapMode === "buy" ? "ETH" : selectedLaunch.symbol})</label>
                 <span className="font-bold text-slate-200">
-                  {swapMode === "buy" ? `Bakiye: ${directEthBalance} ETH` : `Bakiye: ${formattedTokenBalance}`}
+                  {swapMode === "buy" ? `Balance: ${directEthBalance} ETH` : `Balance: ${formattedTokenBalance}`}
                 </span>
               </div>
 
-              {/* Virgülü otomatik noktaya çeviren Input Handler */}
               <input
                 type="text"
                 value={amount}
@@ -694,23 +686,23 @@ export default function AmmoraTerminalPage() {
                     onClick={() => handleSetPercentage(pct)}
                     className="bg-slate-950 hover:bg-slate-800 border border-slate-800 text-[11px] py-1 rounded-lg text-slate-400 hover:text-emerald-400 transition font-bold"
                   >
-                    {pct === 100 ? "MAX" : `%${pct}`}
+                    {pct === 100 ? "MAX" : `${pct}%`}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Durum Mesajları */}
+            {/* Status Messages */}
             {(isPending || isConfirming || isSuccess || txError || txHash) && (
               <div className="p-3 rounded-xl text-xs space-y-2 border bg-slate-950 border-slate-800">
-                {isPending && <div className="text-amber-400">Cüzdandan onay bekleniyor...</div>}
-                {isConfirming && <div className="text-teal-400">Blokzincirde işleniyor...</div>}
-                {isSuccess && <div className="text-emerald-400 font-bold">İşlem Başarıyla Onaylandı!</div>}
-                {txError && <div className="text-rose-400">{txError}</div>}
+                {isPending && <div className="text-amber-400 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Signature requested in wallet...</div>}
+                {isConfirming && <div className="text-teal-400 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Mining block on GIWA network...</div>}
+                {isSuccess && <div className="text-emerald-400 font-bold flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4" /> Transaction Confirmed! Balance updated.</div>}
+                {txError && <div className="text-rose-400 flex items-center gap-1.5"><AlertCircle className="w-4 h-4" /> {txError}</div>}
               </div>
             )}
 
-            {/* Swap Butonu */}
+            {/* Swap Button */}
             <button
               onClick={handleExecuteSwap}
               disabled={isPending || isConfirming || (!hasEnoughBalance && isConnected)}
@@ -725,9 +717,9 @@ export default function AmmoraTerminalPage() {
               {isPending || isConfirming ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : !hasEnoughBalance && isConnected ? (
-                "Yetersiz Bakiye"
+                "Insufficient Balance"
               ) : (
-                `${swapMode === "buy" ? "ETH ile" : ""} ${selectedLaunch.symbol} ${swapMode === "buy" ? "Al" : "Sat"}`
+                `${swapMode === "buy" ? "Buy" : "Sell"} ${selectedLaunch.symbol}`
               )}
             </button>
           </div>
@@ -742,7 +734,7 @@ export default function AmmoraTerminalPage() {
               <h3 className="text-sm font-bold text-slate-100">About Ammora Terminal</h3>
               <button onClick={() => setShowAboutModal(false)}><X className="w-4 h-4 text-slate-400" /></button>
             </div>
-            <p className="text-xs text-slate-300">Ammora Terminal, GIWA Sepolia Testnet üzerinde çalışan merkezsiz bir likidite protokolüdür.</p>
+            <p className="text-xs text-slate-300">Ammora Terminal is a decentralized liquidity protocol operating on GIWA Sepolia Testnet.</p>
           </div>
         </div>
       )}
