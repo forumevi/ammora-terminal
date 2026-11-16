@@ -6,12 +6,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "verify:live": "node scripts/verify-live.mjs"
   },
   "dependencies": {
-    "@ammora-protocol/sdk": "^0.2.13",
+    "@ammora-protocol/sdk": "0.3.9",
     "@tanstack/react-query": "^5.104.1",
     "clsx": "^2.1.1",
+    "lightweight-charts": "5.3.0",
     "lucide-react": "^1.52.0",
     "next": "16.4.0",
     "react": "19.3.0",
@@ -29,5 +31,9 @@
     "eslint-config-next": "16.4.0",
     "tailwindcss": "^4",
     "typescript": "^5"
-  }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "description": "Ammora Terminal: launchpad + exchange on GIWA Sepolia built on @ammora-protocol/sdk 0.3.9"
 }

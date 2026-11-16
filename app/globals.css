@@ -1,26 +1,86 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --color-ink: #06080b;
+  --color-panel: #0b0f14;
+  --color-line: rgb(255 255 255 / 0.08);
+  --color-brand: #34f5c5;
+  --color-brand-2: #5b8cff;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--color-ink);
+  color: #e6edf3;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  background-image:
+    radial-gradient(1200px 600px at 10% -10%, rgb(52 245 197 / 0.08), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgb(91 140 255 / 0.09), transparent 60%);
+  background-attachment: fixed;
 }
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-white/[0.07] bg-white/[0.025] backdrop-blur-sm;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#34f5c5] to-[#5b8cff] px-4 py-2.5 text-sm font-semibold text-black shadow-lg shadow-emerald-500/10 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm font-medium text-zinc-200 transition hover:bg-white/[0.07] disabled:opacity-40;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] font-medium text-zinc-300;
+  }
+  .input {
+    @apply w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/10;
+  }
+  .label {
+    @apply mb-1.5 block text-xs font-medium uppercase tracking-wider text-zinc-500;
+  }
+  .tab {
+    @apply rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-400 transition hover:text-white;
+  }
+  .tab-active {
+    @apply bg-white/[0.08] text-white;
+  }
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+  .text-gradient {
+    @apply bg-gradient-to-r from-[#34f5c5] to-[#5b8cff] bg-clip-text text-transparent;
+  }
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.animate-in { animation: toast-in 180ms ease-out; }
+
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, rgb(255 255 255 / 0.03) 0%, rgb(255 255 255 / 0.08) 50%, rgb(255 255 255 / 0.03) 100%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: 0.5rem;
+}
+
+@keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.ticker { animation: ticker 60s linear infinite; }
+.ticker:hover { animation-play-state: paused; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgb(255 255 255 / 0.08); border-radius: 999px; }
