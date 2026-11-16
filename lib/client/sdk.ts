@@ -10,12 +10,19 @@ import {
 } from "@ammora-protocol/sdk";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import type { Address, PublicClient } from "viem";
-import { usePublicClient } from "wagmi";
-import { CHAIN_ID, ROUTE_GENERATION, V4_CORE } from "@/lib/ammora/config";
+import { createPublicClient, type Address, type PublicClient } from "viem";
+import { giwaSepolia, ROUTE_GENERATION, RPC_URL, V4_CORE } from "@/lib/ammora/config";
+import { pacedHttp } from "@/lib/ammora/paced";
 import type { PoolModel } from "@/lib/ammora/types";
 
-export const useGiwaClient = () => usePublicClient({ chainId: CHAIN_ID }) as unknown as PublicClient | undefined;
+/** Dedicated, paced read client for SDK planners (wallet signing still goes through wagmi). */
+let sdkClient: PublicClient | undefined;
+const getSdkClient = () => {
+  if (typeof window === "undefined") return undefined;
+  sdkClient ??= createPublicClient({ chain: giwaSepolia, transport: pacedHttp(RPC_URL, 40), batch: { multicall: { wait: 10, batchSize: 16_384 } } }) as PublicClient;
+  return sdkClient;
+};
+export const useGiwaClient = () => useMemo(() => getSdkClient(), []);
 
 /** Confirmed snapshot block (12 confirmations on GIWA) — the reviewed read policy in the Ammora examples. */
 export const confirmedHead = (client: PublicClient) => resolveAmmoraFinalizedHead([client], ROUTE_GENERATION.finality);

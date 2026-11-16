@@ -84,6 +84,7 @@ export function PriceChart({ trades, symbol, graduated }: { trades: Trade[]; sym
     if (!box.current) return;
     const chart = createChart(box.current, {
       autoSize: true,
+      localization: { locale: "en-US" },
       layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#8b949e", fontFamily: "var(--font-geist-mono), monospace", attributionLogo: true },
       grid: { vertLines: { color: "rgba(255,255,255,0.03)" }, horzLines: { color: "rgba(255,255,255,0.04)" } },
       crosshair: { mode: CrosshairMode.Normal },

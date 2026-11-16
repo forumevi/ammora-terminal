@@ -83,15 +83,15 @@ await check("Launch index from LaunchCreated logs (explorer log index + SDK ABI 
   const topic = "0x0d8c51804d67b6aa256e855176d3b6f5d0cc3657138b63947cc9eb5a1908d00a";
   const r = await (await fetch(`${EXPLORER}/api?module=logs&action=getLogs&fromBlock=${D.startBlock}&toBlock=latest&address=${L.factory}&topic0=${topic}`)).json();
   launches = r.result.map((l) => ({ ...decodeEventLog({ abi: ammoraLaunchFactoryV4Abi, data: l.data, topics: l.topics.filter(Boolean) }).args, block: BigInt(l.blockNumber) }));
-  const states = await client.multicall({ contracts: launches.flatMap((x) => [{ address: x.curve, abi: ammoraLaunchPoolV4Abi, functionName: "status" }, { address: x.curve, abi: ammoraLaunchPoolV4Abi, functionName: "canonicalPool" }]) });
-  launches.forEach((x, i) => { x.status = states[2 * i].result; x.pool = states[2 * i + 1].result; });
+  const states = await client.multicall({ contracts: launches.flatMap((x) => [{ address: x.curve, abi: ammoraLaunchPoolV4Abi, functionName: "status" }, { address: x.curve, abi: ammoraLaunchPoolV4Abi, functionName: "canonicalPool" }, { address: x.curve, abi: ammoraLaunchPoolV4Abi, functionName: "quoteReserve" }]) });
+  launches.forEach((x, i) => { x.status = states[3 * i].result; x.pool = states[3 * i + 1].result; x.quoteReserve = states[3 * i + 2].result ?? 0n; });
   const by = launches.reduce((a, x) => ((a[x.status] = (a[x.status] || 0) + 1), a), {});
   return { launches: launches.length, byStatus: by, newest: { token: launches.at(-1).token, curve: launches.at(-1).curve, configId: launches.at(-1).configId } };
 });
 
 let active;
 await check("Curve state + quote via AmmoraV4LaunchCurveClient (getStateAtBlock / quoteExactInputAtBlock)", async () => {
-  const candidates = launches.filter((x) => x.status === 1 && x.block <= head).reverse(); // skip launches newer than the confirmed snapshot
+  const candidates = launches.filter((x) => x.status === 1 && x.block <= head && x.quoteReserve >= 10n ** 15n).reverse(); // skip launches newer than the confirmed snapshot
   for (const c of candidates) {
     const sdk = new AmmoraV4LaunchCurveClient(client, c.curve, CORE);
     const state = await sdk.getStateAtBlock(head).catch(() => null);
